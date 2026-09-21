@@ -6,3 +6,4 @@ dist/
 coverage/
 *.log
 serviceAccountKey.json
+firebase-applet-config.json
