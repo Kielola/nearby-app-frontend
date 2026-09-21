@@ -95,7 +95,7 @@ interface PremiumProfileViewProps {
   setUploadMode?: (val: 'post' | 'highlight') => void;
   setViewingUserPostDetail?: (post: any) => void;
   setShowFriendsModal?: (val: boolean) => void;
-  logoutUser?: PremiumProfileViewProps () => void;
+  logoutUser?: () => void;
 }
 
 export const PremiumProfileView = React.memo(function PremiumProfileView({
