@@ -12,6 +12,9 @@ export function useNearbyUsersQuery(enabled: boolean, radiusKm: number) {
     queryKey: ['radar', 'nearby', radiusKm],
     queryFn: () => radarApi.getNearby(radiusKm),
     enabled,
-    refetchInterval: 20_000,
+    // 60s rather than 20s. Proximity data doesn't need sub-minute
+    // freshness, and every poll is one Redis mget on the server. On a free
+    // Redis tier metered in commands, the polling interval IS the bill.
+    refetchInterval: 60_000,
   });
 }

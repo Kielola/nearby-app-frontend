@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { db, auth, collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, deleteDoc, uploadToStorage, createNotification } from '../../../firebase';
 import { Neighbor } from '../../../types';
+import { aiApi } from '../../../lib/api';
 import { useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 
 interface Post {
@@ -1131,30 +1132,21 @@ const ExploreTab = React.memo(function ExploreTab({
     triggerBeep(450, 0.1);
 
     try {
-      // Fast call to our backend Gemini API
-      const response = await fetch('/api/ai-icebreaker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userProfile: {
-            name: currentUser?.name || 'Physical Neighbor',
-            interests: currentUser?.interests || ['football', 'agriculture', 'music', 'tech'],
-            streetName: selectedPreset?.streets[0] || 'Linden Street'
-          },
-          neighborProfile: {
-            name: neighbor.name,
-            interests: neighbor.interests || [],
-            streetName: neighbor.streetName || 'Walking distance'
-          }
-        })
+      // Goes through the API layer now (Firebase token attached, rate
+      // limited server-side) instead of a separate Express process.
+      const data = await aiApi.icebreakers({
+        userProfile: {
+          name: currentUser?.name || 'Physical Neighbor',
+          interests: currentUser?.interests || ['football', 'agriculture', 'music', 'tech'],
+          streetName: selectedPreset?.streets[0] || '',
+        },
+        neighborProfile: {
+          name: neighbor.name,
+          interests: neighbor.interests || [],
+          streetName: neighbor.streetName || '',
+        },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIcebreakers(data.starters || []);
-      } else {
-        throw new Error("Icebreaker API error");
-      }
+      setIcebreakers(data.starters || []);
     } catch (e) {
       // Local high quality rule matching fallback
       setTimeout(() => {

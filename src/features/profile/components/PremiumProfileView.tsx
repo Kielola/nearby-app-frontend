@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useNearbyRuntime } from '../../../app/context/NearbyRuntimeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, 
@@ -94,7 +95,7 @@ interface PremiumProfileViewProps {
   setUploadMode?: (val: 'post' | 'highlight') => void;
   setViewingUserPostDetail?: (post: any) => void;
   setShowFriendsModal?: (val: boolean) => void;
-  logoutUser?: () => void;
+  logoutUser?: PremiumProfileViewProps () => void;
 }
 
 export const PremiumProfileView = React.memo(function PremiumProfileView({
@@ -170,6 +171,10 @@ export const PremiumProfileView = React.memo(function PremiumProfileView({
   };
 
   // Target data bindings depending on perspective
+  // The user's own resolved location label, straight from the runtime —
+  // this component had "Osogbo, Nigeria" hardcoded for everyone.
+  const runtimeUserAddress = useNearbyRuntime().userAddress;
+
   const profileName = isOwnProfile ? userDisplayName : (neighbor?.name || "Neighbor");
   const profileUsername = isOwnProfile ? userUsername : (neighbor?.username || "neighbor");
   const profileBio = isOwnProfile ? userBio : (neighbor?.bio || "Let's connect face-to-face 👋");
@@ -179,7 +184,12 @@ export const PremiumProfileView = React.memo(function PremiumProfileView({
   
   const avatarEmoji = neighbor?.avatarEmoji || "🙋‍♂️";
   const avatarColor = neighbor?.avatarColor || "bg-emerald-500";
-  const displayLocation = isOwnProfile ? "Osogbo, Nigeria" : (neighbor?.streetName || "Osogbo, Nigeria");
+  // Was hardcoded to "Osogbo, Nigeria" for every user in the app — both your
+  // own profile and every neighbour's. Now shows the real resolved label,
+  // and admits when there isn't one instead of inventing a city.
+  const displayLocation = isOwnProfile
+    ? (runtimeUserAddress || "Location not shared yet")
+    : (neighbor?.streetName || "Location not shared yet");
   
   const distanceText = isOwnProfile 
     ? "Owner Profile" 

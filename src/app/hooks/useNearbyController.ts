@@ -81,7 +81,7 @@ import {
   Star
 } from 'lucide-react';
 import { Neighbor, DirectMessage, CallState, StorySnap, PublicSnap, Meetup, MeetupRating } from '../../types';
-import { radarApi } from '../../lib/api';
+import { radarApi, usersApi, chatApi, presenceApi, aiApi } from '../../lib/api';
 import { mediaApi } from '../../lib/api/mediaApi';
 import { useNearbyUsersQuery } from '../../features/maps/hooks/useNearbyUsersQuery';
 import { useAuth } from '../../features/authentication/context/AuthContext';
@@ -89,8 +89,15 @@ import { useChatSync } from '../../features/chat/hooks/useChatSync';
 import { useFriendsSync } from '../../features/friends/hooks/useFriendsSync';
 import { useUserContent } from '../../features/content/hooks/useUserContent';
 import { getCallSocket } from '../../lib/socket/callSocket';
+import { getChatSocket } from '../../lib/socket/chatSocket';
+import {
+  reverseGeocode,
+  fallbackLabelFor,
+  locationService,
+  clearLocationCache,
+} from '../../features/maps/services/locationService';
 import { useCallSignaling } from '../../features/calls/hooks/useCallSignaling';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePresenceSync } from '../../features/presence/hooks/usePresenceSync';
 import { friendsApi } from '../../lib/api';
 import { postsApi, highlightsApi } from '../../lib/api';
@@ -203,146 +210,119 @@ export function useNearbyController() {
     return R * c; // in meters
   };
 
-  const updatePresetWithCoordinates = async (lat: number, lng: number, force = false, extraCoords?: { accuracy?: number | null; heading?: number | null; speed?: number | null }) => {
+  /**
+   * Maps the app's internal profile shape onto the backend's PATCH /me
+   * contract and sends only the fields the API actually supports.
+   *
+   * Previously each of these call sites did `setDoc(doc(db,'users',uid),
+   * {...})` with a large payload mixing UI-only preferences (theme,
+   * appLanguage, isSubscribed) with real profile fields, and one of them
+   * even wrote a whole `friendIds` array — which silently reverted
+   * friendships made on another device. Unknown keys are dropped here on
+   * purpose: the server owns what it owns.
+   */
+  const persistProfileToBackend = async (patch: Record<string, unknown>) => {
+    const payload: { displayName?: string; bio?: string; avatarUrl?: string; streetName?: string; customStatus?: string } = {};
+    if (typeof patch.name === 'string' && patch.name.trim()) payload.displayName = patch.name;
+    if (typeof patch.bio === 'string') payload.bio = patch.bio;
+    if (typeof patch.customProfilePhoto === 'string') payload.avatarUrl = patch.customProfilePhoto;
+    if (typeof patch.streetName === 'string') payload.streetName = patch.streetName;
+    if (typeof patch.customStatus === 'string') payload.customStatus = patch.customStatus;
+    if (Object.keys(payload).length === 0) return;
+    await usersApi.updateMe(payload);
+  };
+
+  // refetchMyContent() comes from useUserContent far below, but story
+  // upload happens near the top of this hook — a ref bridges the two
+  // without reordering a 6,000-line component.
+  const refetchMyContentRef = useRef<() => void>(() => {});
+
+  const updatePresetWithCoordinates = async (
+    lat: number,
+    lng: number,
+    force = false,
+    extraCoords?: { accuracy?: number | null; heading?: number | null; speed?: number | null },
+  ) => {
+    const accuracy = extraCoords?.accuracy ?? null;
+
+    // Reject fixes we can't trust before they reach the geocoder. A
+    // cold-start reading in the 500m-3km range is normal here and will
+    // happily resolve to a street the user has never been on.
+    if (!locationService.isUsableFix(lat, lng, accuracy)) {
+      console.warn('[location] discarding unusable GPS fix', { lat, lng, accuracy });
+      return null;
+    }
+
     try {
       const now = Date.now();
       const lastWrite = lastLocationWriteRef.current;
-      const distanceMoved = lastWrite.time === 0 ? 0 : calculateHaversineDistance(lat, lng, lastWrite.lat, lastWrite.lng);
-      
-      // Find closest local preset (used for fast local fallback updates)
-      let closestPreset = NEIGHBORHOODS[0];
-      let minDistance = Infinity;
-      for (const preset of NEIGHBORHOODS) {
-        const dist = calculateHaversineDistance(lat, lng, preset.coords.lat, preset.coords.lng);
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestPreset = preset;
-        }
-      }
-
-      let finalState = closestPreset.city.split(',').pop()?.trim() || 'Osun';
-      let finalTown = closestPreset.name.split(',').slice(-1)[0]?.trim() || 'Osogbo';
-      let finalRoad = closestPreset.streets[0] || 'Gbongan Road';
-      const exactPlaceLocal = finalRoad;
-      const fullAddrLabelLocal = `${exactPlaceLocal}, ${finalTown}, ${finalState}`;
-
-      // 1. Hard Rate-Limit: If not forced AND we have written before, enforce a minimum 15-second delay
+      const distanceMoved =
+        lastWrite.time === 0
+          ? 0
+          : calculateHaversineDistance(lat, lng, lastWrite.lat, lastWrite.lng);
       const timePassed = now - lastWrite.time;
-      if (!force && lastWrite.time > 0 && timePassed < 15000) {
-        // Fast path: Update local UI states ONLY, bypass network o!
-        setUserAddress(fullAddrLabelLocal);
-        const localPreset: LocationPreset = {
-          name: `${exactPlaceLocal}, ${finalTown}`,
-          city: finalState,
-          coords: { lat, lng },
-          streets: [finalRoad, finalTown, finalState]
-        };
-        setSelectedPreset(localPreset);
-        return localPreset;
-      }
 
-      // 2. Adaptive Gate: Only proceed to fetch reverse-geocode & write to Firestore if:
-      // - First time (time === 0)
-      // - OR forced
-      // - OR moved >= 15 meters
-      // - OR >= 60 seconds have passed (heartbeat)
-      const shouldWriteToNetwork = force || lastWrite.time === 0 || distanceMoved >= 15 || timePassed >= 60000;
-      if (!shouldWriteToNetwork) {
-        // Just update local UI states to make map moves buttery smooth o!
-        setUserAddress(fullAddrLabelLocal);
-        const localPreset: LocationPreset = {
-          name: `${exactPlaceLocal}, ${finalTown}`,
-          city: finalState,
-          coords: { lat, lng },
-          streets: [finalRoad, finalTown, finalState]
-        };
-        setSelectedPreset(localPreset);
-        return localPreset;
-      }
+      // Coordinates go to the backend promptly — radar depends on them and
+      // they must never be blocked behind address resolution.
+      const shouldWriteToNetwork =
+        force || lastWrite.time === 0 || distanceMoved >= 15 || timePassed >= 60000;
 
-      // Record this network operation immediately to prevent race conditions o!
-      lastLocationWriteRef.current = { lat, lng, time: now };
-
-      // Perform a real reverse geocoding fetch call to Nominatim OpenStreetMap to write the actual street o!
-      let resolvedRoad = '';
-      let resolvedTown = '';
-      let resolvedState = '';
-
-      try {
-        const geocodeRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
-          headers: {
-            'Accept-Language': 'en'
-          }
-        });
-        if (geocodeRes.ok) {
-          const data = await geocodeRes.json();
-          if (data && data.address) {
-            resolvedRoad = data.address.road || data.address.suburb || data.address.neighbourhood || '';
-            resolvedTown = data.address.city_district || data.address.town || data.address.city || data.address.village || '';
-            resolvedState = data.address.state || data.address.county || '';
-          }
-        }
-      } catch (err) {
-        console.warn("Reverse geocode attempt failed o, utilizing offline distance presets:", err);
-      }
-
-      if (resolvedRoad) {
-        finalRoad = resolvedRoad;
-        if (resolvedTown) finalTown = resolvedTown;
-        if (resolvedState) finalState = resolvedState;
-      } else {
-        // Use the closest preset neighborhood details as fallback
-        finalTown = closestPreset.city.split(',')[0]?.trim() || 'Osogbo';
-        finalRoad = closestPreset.streets[0] || 'Gbongan Road';
-      }
-
-      if (!finalRoad) {
-        finalRoad = "Gbongan Road";
-      }
-
-      const exactPlace = finalRoad;
-      const fullAddrLabel = `${exactPlace}, ${finalTown}, ${finalState}`;
-      
-      setUserAddress(fullAddrLabel);
-      
-      const newPreset: LocationPreset = {
-        name: `${exactPlace}, ${finalTown}`,
-        city: finalState,
-        coords: { lat: lat, lng: lng },
-        streets: [finalRoad, finalTown, finalState]
-      };
-      
-      setSelectedPreset(newPreset);
-      
-      try {
-        localStorage.setItem('nearby_last_user_coords', JSON.stringify({ lat, lng }));
-        localStorage.setItem('nearby_user_address', fullAddrLabel);
-        localStorage.setItem('nearby_selected_preset', JSON.stringify(newPreset));
-      } catch (_) {}
-      
-      // Update user coordinates on our backend. This one call replaces
-      // writes to four separate Firestore collections (users, locations,
-      // liveLocations, visibilitySettings) — the latter three were dead
-      // writes with no reader anywhere in the codebase. Postgres+PostGIS
-      // (via ST_DWithin in RadarService.findNearby) is now the single
-      // source of truth for "who's nearby."
-      const currentUserId = auth.currentUser?.uid || localStorage.getItem('nearby_current_uid') || '';
-      if (currentUserId && auth.currentUser && auth.currentUser.uid === currentUserId) {
+      if (shouldWriteToNetwork) {
+        lastWrite && (lastLocationWriteRef.current = { lat, lng, time: now });
         try {
           await radarApi.updateLocation(lat, lng);
-        } catch(e) {
-          console.warn("Could not sync coordinates to backend:", e);
+        } catch (e) {
+          console.warn('Could not sync coordinates to backend:', e);
         }
       }
-      
+
+      // Fast path: if we already have a label and nothing meaningful has
+      // changed, don't re-resolve. reverseGeocode caches internally too,
+      // this just avoids the call entirely on every GPS tick.
+      if (!shouldWriteToNetwork && userAddress) {
+        return null;
+      }
+
+      const resolved =
+        (await reverseGeocode(lat, lng, accuracy)) ??
+        fallbackLabelFor(lat, lng, accuracy);
+
+      setUserAddress(resolved.label);
+
+      const newPreset: LocationPreset = {
+        name: resolved.label,
+        city: resolved.state ?? resolved.town ?? '',
+        coords: { lat, lng },
+        streets: resolved.road ? [resolved.road] : [],
+      };
+      setSelectedPreset(newPreset);
+
+      try {
+        localStorage.setItem('nearby_last_user_coords', JSON.stringify({ lat, lng }));
+        localStorage.setItem('nearby_user_address', resolved.label);
+        localStorage.setItem('nearby_selected_preset', JSON.stringify(newPreset));
+      } catch (_) {}
+
+      // Only publish a street label we actually stand behind. This value
+      // is shown to OTHER users on their radar, so a guess here becomes
+      // someone else's misinformation. If the fix was too coarse we send
+      // coordinates-accuracy only and leave the stored label untouched.
+      if (shouldWriteToNetwork && resolved.precision === 'street' && resolved.road) {
+        try {
+          await usersApi.updateMe({
+            streetName: resolved.label,
+            locationAccuracy: accuracy,
+          });
+        } catch (e) {
+          console.warn('Could not sync address label to backend:', e);
+        }
+      }
+
       return newPreset;
     } catch (err) {
-      console.warn("Geocoding failed:", err);
-      if (typeof lat === 'number' && typeof lng === 'number') {
-        setUserAddress(`Latitude: ${lat.toFixed(4)}, Longitude: ${lng.toFixed(4)}`);
-      }
+      console.warn('Location update failed:', err);
+      return null;
     }
-    return null;
   };
 
   const updateRadarPresenceInFirestore = async (enabled: boolean, mode: 'everyone' | 'friends' | 'hidden') => {
@@ -606,7 +586,15 @@ export function useNearbyController() {
         customList: storyCompositionPrivacy === 'custom' ? storyCompositionCustomList : []
       };
 
-      await setDoc(doc(db, 'users', currentUser.uid, 'stories', snapId), newSnap);
+      // Was setDoc(doc(db,'users',uid,'stories',snapId)). Status/stories now
+      // live in the Postgres `highlights` table behind the authenticated
+      // API, so the client no longer needs write access to Firestore.
+      await highlightsApi.create({
+        mediaUrl: finalMediaUrl,
+        mediaType: storyUploadData.type === 'video' ? 'video' : 'image',
+        caption: storyCompositionCaption || undefined,
+      });
+      refetchMyContentRef.current?.();
 
       setAudioFeedback("Your status is now live!");
       setTimeout(() => setAudioFeedback(""), 3000);
@@ -760,7 +748,7 @@ export function useNearbyController() {
           } else {
             try {
               await highlightsApi.create({ mediaUrl: finalMediaUrl, mediaType: 'image', caption: title });
-              refetchMyContent();
+              refetchMyContentRef.current?.();
               setAudioFeedback("Highlight uploaded & persisted! 📲");
             } catch (err) {
               console.error("Backend write highlight error:", err);
@@ -820,7 +808,7 @@ export function useNearbyController() {
                 mediaUrl: finalMediaUrl,
                 mediaType: isVideo ? 'video' : 'image',
               });
-              refetchMyContent();
+              refetchMyContentRef.current?.();
               setAudioFeedback("Post added to your feed! 📸");
             } catch (err) {
               console.error("Backend write post error:", err);
@@ -864,29 +852,10 @@ export function useNearbyController() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const presenceColRef = collection(db, 'presence');
-    const unsubPresence = onSnapshot(presenceColRef, (snapshot) => {
-      const pm: Record<string, { online: boolean, status: 'active' | 'away' | 'offline', typing: string, lastSeen: string, currentConversation: string }> = {};
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data && data.uid) {
-          pm[data.uid] = {
-            online: data.online ?? false,
-            status: (data.status === 'active' || data.status === 'away' || data.status === 'offline') ? data.status : (data.online ? 'active' : 'offline'),
-            typing: data.typing ?? "",
-            lastSeen: data.lastSeen ?? "",
-            currentConversation: data.currentConversation ?? ""
-          };
-        }
-      });
-      setPresenceMap(pm);
-    }, (err) => {
-      console.warn("Failed to subscribe to real-time presence:", err);
-    });
-    return () => unsubPresence();
-  }, [currentUser]);
+  // Presence + typing live further down, after nearbyUsersData and
+  // textInput are in scope.
+
+
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isSplashActive, setIsSplashActive] = useState<boolean>(true);
   const [showWelcomeTour, setShowWelcomeTour] = useState<boolean>(() => {
@@ -1158,23 +1127,11 @@ export function useNearbyController() {
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const [showPhotoMenu, setShowPhotoMenu] = useState<boolean>(false);
 
-  // Dynamic address / streetName Firestore synchronization
-  useEffect(() => {
-    if (!currentUser || !userAddress) return;
-    const saveAddressToDb = async () => {
-      try {
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const cleanStreet = userAddress.split(',')[0] || userAddress;
-        await updateDoc(userDocRef, {
-          streetName: cleanStreet
-        });
-      } catch (e) {
-        console.warn("Could not sync updated streetName to Firestore:", e);
-      }
-    };
-    const timer = setTimeout(saveAddressToDb, 1000);
-    return () => clearTimeout(timer);
-  }, [currentUser, userAddress]);
+  // (The streetName sync that used to live here was removed.)
+  // updatePresetWithCoordinates already PATCHes the resolved label to the
+  // backend, and only when it is genuinely a street-level match. Keeping
+  // this second writer meant a coarse "Approximate location" label could
+  // race a good one and win.
 
   // Listen to Google Maps API authentication failure events to automatically fall back to Leaflet
   useEffect(() => {
@@ -1626,7 +1583,7 @@ export function useNearbyController() {
       // merge:true is required now that friendIds is omitted above - a plain
       // setDoc() replaces the entire document, which would DELETE the user's
       // friendIds field and instantly unfriend them from everyone.
-      await setDoc(userDocRef, finalDoc, { merge: true });
+      await persistProfileToBackend(finalDoc);
       
       // Update local states
       setUserDisplayName(cleanName);
@@ -1874,7 +1831,7 @@ export function useNearbyController() {
                 name: authName,
                 username: data.username && data.username !== 'nearby_member' ? data.username : (user.email ? user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_\-]/g, '') : `user_${user.uid.slice(0,5)}`)
               };
-              setDoc(userDocRef, data, { merge: true }).catch(e => console.warn("Doc update name err:", e));
+              persistProfileToBackend(data).catch(e => console.warn("Profile update err:", e));
             }
 
             // 2. Apply loaded cloud parameters
@@ -1967,7 +1924,10 @@ export function useNearbyController() {
               updatedAt: new Date().toISOString()
             };
             
-            await setDoc(userDocRef, initialDoc);
+            // The backend provisions the Postgres row on the first
+            // authenticated request; this pushes the onboarding fields
+            // the user chose (name, bio, avatar) onto it.
+            await persistProfileToBackend(initialDoc);
             applyProfileData(initialDoc);
 
             try {
@@ -2088,21 +2048,16 @@ export function useNearbyController() {
   useEffect(() => {
     if (!currentUser || showOnboarding) return;
 
-    const presenceDocRef = doc(db, 'presence', currentUser.uid);
     let lastActivityTime = Date.now();
     let currentStatus: 'active' | 'away' | 'offline' = 'active';
 
     const writePresence = async (status: 'active' | 'away' | 'offline') => {
       currentStatus = status;
       try {
-        await setDoc(presenceDocRef, {
-          uid: currentUser.uid,
-          online: status === 'active',
-          status,
-          lastSeen: new Date().toISOString(),
-          currentConversation: selectedNeighborId || '',
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+        // Was a setDoc to the `presence` collection, which every client
+        // subscribed to. The backend keeps this user's Redis key alive
+        // instead; online/offline is derived from that key's TTL.
+        await presenceApi.heartbeat();
       } catch (e) {
         console.warn('Presence write failed:', e);
       }
@@ -2244,36 +2199,8 @@ export function useNearbyController() {
     }
   }, [chatMessages, selectedNeighborId]);
 
-  // -----------------------------------------
-  // Real-time Typing Status
-  // -----------------------------------------
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const presenceDocRef = doc(db, 'presence', currentUser.uid);
-    const typingTarget = selectedNeighborId && !selectedNeighbor?.isGroup && textInput.trim()
-      ? selectedNeighborId
-      : '';
-
-    const timer = window.setTimeout(() => {
-      setDoc(presenceDocRef, {
-        uid: currentUser.uid,
-        typing: typingTarget,
-        updatedAt: new Date().toISOString()
-      }, { merge: true }).catch((err) => {
-        console.warn('Typing presence write failed:', err);
-      });
-    }, 250);
-
-    return () => {
-      clearTimeout(timer);
-      // When changing chats, closing chat, or clearing the input, immediately
-      // remove the previous target instead of leaving a stale "typing" flag.
-      if (!typingTarget) {
-        setDoc(presenceDocRef, { typing: '', updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-      }
-    };
-  }, [textInput, selectedNeighborId, selectedNeighbor?.isGroup, currentUser?.uid]);
+  // Typing is now sent over the chat socket (see the effect above) rather
+  // than written to a Firestore presence document on every keystroke.
 
   // -----------------------------------------
   // Core WhatsApp Synced Persistence Helpers o!
@@ -2348,9 +2275,13 @@ export function useNearbyController() {
     };
 
     try {
+      // Messages are persisted by the backend (ChatService.sendMessage via
+      // the `send_message` socket event) — that write used to be mirrored
+      // here into Firestore as well, which is exactly what produced
+      // one-sided delivery: two independent writers, two orderings, two
+      // different thread-id conventions.
       if (isGroupThread) {
-        const msgDocRef = doc(db, 'groups', threadId, 'messages', msg.id);
-        await setDoc(msgDocRef, msgBody, { merge: true });
+        // Group threads are not backed by the new API yet; nothing to mirror.
       } else {
         const participants = [fUser.uid, threadId].sort();
         const chatThreadId = participants.join('_');
@@ -2363,8 +2294,7 @@ export function useNearbyController() {
           receiverId: msgBody.receiverId === 'user' ? threadId : msgBody.receiverId,
         };
 
-        const msgDocRef = doc(db, 'direct_messages', msg.id);
-        await setDoc(msgDocRef, dmBody, { merge: true });
+        void dmBody; // retained for the notification payload below
 
         // Add real-time notification.
         //
@@ -2419,18 +2349,16 @@ export function useNearbyController() {
     const unreadMsgs = msgs.filter(m => m.senderId !== 'user' && m.senderId !== fUser.uid && m.status !== 'read');
     if (unreadMsgs.length === 0) return;
 
+    if (selectedNeighbor?.isGroup) return;
+
     try {
-      await Promise.all(unreadMsgs.map(async (msg) => {
-        // Only write the read-receipt fields. The previous version spread the WHOLE
-        // in-memory message back into Firestore, and the in-memory copy has its
-        // `chatThreadId` rewritten to the neighbor's id for UI purposes - so marking
-        // a chat as read silently overwrote the canonical composite thread id (and
-        // could re-write stale text/status) on every message in the conversation.
-        const msgDocRef = doc(db, 'direct_messages', msg.id);
-        await setDoc(msgDocRef, { status: 'read', isUnread: false }, { merge: true });
-      }));
+      // Read state is a per-conversation watermark on the backend rather
+      // than a flag on each message — so this is ONE call, instead of a
+      // Firestore write per unread message every time a chat is opened.
+      const { conversationId } = await chatApi.startConversation(selectedNeighborId);
+      await chatApi.markRead(conversationId);
     } catch (err) {
-      console.warn("Error marking messages read in Firestore:", err);
+      console.warn("Error marking conversation read:", err);
     }
   };
 
@@ -2453,12 +2381,9 @@ export function useNearbyController() {
         setMyUploadedStory(null);
         setAudioFeedback("⏰ Your status update has expired after 24 hours.");
         setTimeout(() => setAudioFeedback(""), 3000);
-        try {
-          const activeStoryRef = doc(db, 'users', currentUser.uid, 'stories', 'active');
-          await deleteDoc(activeStoryRef);
-        } catch (err) {
-          console.warn("Failed to delete expired story from Firestore:", err);
-        }
+        setMyUploadedStory(null);
+        // No client-side deletion: highlight expiry is the server's job, so
+        // two devices can't disagree about whether a status is still live.
       }
     };
 
@@ -2710,7 +2635,7 @@ export function useNearbyController() {
       try {
         const userDocRef = doc(db, 'users', fUser.uid);
         const myNoteText = activeNotes.find(n => n.id === 'user-note-me')?.text || '';
-        await setDoc(userDocRef, {
+        await persistProfileToBackend({
           uid: fUser.uid,
           username: userUsername,
           name: userDisplayName,
@@ -2753,7 +2678,7 @@ export function useNearbyController() {
           trustScore: userTrustScore,
           meetupsCompleted: userMeetupCount,
           updatedAt: new Date().toISOString()
-        }, { merge: true });
+        });
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${fUser.uid}`);
       }
@@ -2795,158 +2720,67 @@ export function useNearbyController() {
   // -----------------------------------------
   // Synced Multi-Status Stories and Dynamic Listeners o!
   // -----------------------------------------
-  useEffect(() => {
-    if (!currentUser) {
-      setMyStorySnaps([]);
-      return;
-    }
-    const myStoriesCol = collection(db, 'users', currentUser.uid, 'stories');
-    const unsub = onSnapshot(myStoriesCol, (snap) => {
-      const list: StorySnap[] = [];
-      const now = Date.now();
-      const oneDayMs = 24 * 60 * 60 * 1000;
-      
-      snap.forEach(docSnap => {
-        const d = docSnap.data() as StorySnap;
-        if (docSnap.id === 'active' || docSnap.id === 'activeStory') return;
-        if (d.createdAt && (now - d.createdAt > oneDayMs)) {
-          // Automated physical deletion of expired status!
-          deleteDoc(doc(db, 'users', currentUser.uid, 'stories', docSnap.id))
-            .catch(err => console.warn("Failed lazy cleanup of expired story document:", err));
-          return;
-        }
-        list.push(d);
-      });
-      
-      list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      setMyStorySnaps(list);
-      setMyUploadedStory(list[0] || null);
-    }, (err) => {
-      console.warn("Error listening to own stories:", err);
-    });
-
-    return () => unsub();
-  }, [currentUser]);
-
+  // Kept (and left empty) because the hook's return object still exposes
+  // it; there are no per-neighbour Firestore story subscriptions any more.
   const neighborStoryUnsubsRef = useRef<Record<string, () => void>>({});
 
+  // Own status/stories now come from the backend `highlights` table, which
+  // the effect further down already loads via useUserContent. The old
+  // per-user Firestore subcollection listener (and its lazy
+  // deleteDoc-on-read expiry sweep) is gone — expiry is a server concern.
+
+  // Neighbour stories are fetched per-profile via useUserContent when you
+  // actually open someone's profile, instead of opening a live Firestore
+  // subcollection listener for EVERY person currently on the radar.
+
+  // -----------------------------------------
+  // Own profile
+  // -----------------------------------------
+  // This was onSnapshot(doc(db,'users',uid)) — a live Firestore listener
+  // purely to read back a document the client itself had written. The
+  // Postgres row is the source of truth now (appUser, from AuthContext),
+  // so we read it once through the API and derive everything from that.
   useEffect(() => {
-    if (!currentUser) return;
+    if (!appUser) return;
 
-    const activeNeighIds = neighbors.map(n => n.id);
-
-    activeNeighIds.forEach(id => {
-      if (id === 'me' || id.startsWith('group-') || neighborStoryUnsubsRef.current[id]) return;
-
-      const neighborObj = neighbors.find(n => n.id === id);
-      const storiesCol = collection(db, 'users', id, 'stories');
-      const unsub = onSnapshot(storiesCol, (snap) => {
-        const list: StorySnap[] = [];
-        const now = Date.now();
-        const oneDayMs = 24 * 60 * 60 * 1000;
-
-        snap.forEach(docSnap => {
-          const d = docSnap.data() as StorySnap;
-          if (docSnap.id === 'active' || docSnap.id === 'activeStory') return;
-          if (d.createdAt && (now - d.createdAt > oneDayMs)) return;
-
-          const privacy = d.privacy || 'everyone';
-          if (privacy === 'friends') {
-            const isFriend = (neighborObj && neighborObj.isFriend) || (Array.isArray(friendIds) ? friendIds : []).includes(id);
-            if (!isFriend) return;
-          } else if (privacy === 'custom') {
-            const allowed = d.customList || [];
-            if (!allowed.includes(currentUser.uid)) return;
-          }
-
-          list.push(d);
-        });
-
-        list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        setNeighborStories(prev => ({
-          ...prev,
-          [id]: list
-        }));
-      }, (err) => {
-        console.warn("Could not load neighbor stories:", id);
+    if (appUser.displayName && appUser.displayName !== 'Nearby Member') {
+      setUserDisplayName(appUser.displayName);
+    }
+    if (appUser.bio) setUserBio(appUser.bio);
+    if (appUser.avatarUrl && appUser.avatarUrl !== customProfilePhoto) {
+      setCustomProfilePhoto(appUser.avatarUrl);
+    }
+    if (appUser.customStatus) {
+      setUserRadarStatusText(appUser.customStatus);
+    }
+    // A saved street label is only applied once we have no live fix, so a
+    // stale cached address can never overwrite a fresh GPS reading.
+    if (appUser.streetName && !userCoords) {
+      setUserAddress(appUser.streetName);
+    }
+    if (
+      typeof appUser.latitude === 'number' &&
+      typeof appUser.longitude === 'number' &&
+      Number.isFinite(appUser.latitude) &&
+      Number.isFinite(appUser.longitude) &&
+      !(appUser.latitude === 0 && appUser.longitude === 0)
+    ) {
+      const lat = appUser.latitude;
+      const lng = appUser.longitude;
+      setUserCoords((prev) => {
+        if (prev) return prev;
+        setGpsSynced(true);
+        const restoredPreset: LocationPreset = {
+          name: appUser.streetName || 'My Location',
+          city: '',
+          coords: { lat, lng },
+          streets: appUser.streetName ? [appUser.streetName] : [],
+        };
+        setSelectedPreset(restoredPreset);
+        return { lat, lng };
       });
-
-      neighborStoryUnsubsRef.current[id] = unsub;
-    });
-
-    Object.keys(neighborStoryUnsubsRef.current).forEach(id => {
-      if (!activeNeighIds.includes(id)) {
-        if (neighborStoryUnsubsRef.current[id]) {
-          neighborStoryUnsubsRef.current[id]();
-        }
-        delete neighborStoryUnsubsRef.current[id];
-        setNeighborStories(prev => {
-          const copy = { ...prev };
-          delete copy[id];
-          return copy;
-        });
-      }
-    });
-  }, [neighbors, currentUser, friendIds]);
-
-  // Listen to current user document in real-time o!
-  useEffect(() => {
-    if (!currentUser) return;
-    const myDocRef = doc(db, 'users', currentUser.uid);
-    const unsubMe = onSnapshot(myDocRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.name && data.name !== 'Nearby Member') setUserDisplayName(data.name);
-        if (data.username && data.username !== 'nearby_member') setUserUsername(data.username);
-        if (data.bio) setUserBio(data.bio);
-        if (data.customProfilePhoto) setCustomProfilePhoto(data.customProfilePhoto);
-        // friendIds intentionally NOT read here - /friendships is the single
-        // source of truth. Reading the cached array back would race the
-        // friendship listener and resurrect deleted friends.
-        if (data.contacts && Array.isArray(data.contacts)) {
-          setContactsList(data.contacts);
-        }
-        
-        // Ban monitoring
-        if (data.banned === true || (data.reportsCount !== undefined && data.reportsCount >= 10)) {
-          setIsCurrentMeBanned(true);
-        } else {
-          setIsCurrentMeBanned(false);
-        }
-        
-        // Verification level monitoring
-        if (data.verificationLevel) {
-          setMyVerificationLevel(data.verificationLevel);
-        }
-        
-        // Restore user coordinates from their profile document on launch o!
-        if (typeof data.latitude === 'number' && typeof data.longitude === 'number' && Number.isFinite(data.latitude) && Number.isFinite(data.longitude)) {
-          const lat = data.latitude;
-          const lng = data.longitude;
-          if (!isNaN(lat) && !isNaN(lng)) {
-            setUserCoords(prev => {
-              if (!prev) {
-                // Set GPS tracking system to active o!
-                setGpsSynced(true);
-                const restoredPreset: LocationPreset = {
-                  name: data.streetName || "My Location",
-                  city: data.appLanguage || "Osun",
-                  coords: { lat, lng },
-                  streets: [data.streetName || "Gbongan Road", data.appLanguage || "Osun"]
-                };
-                setSelectedPreset(restoredPreset);
-                return { lat, lng };
-              }
-              return prev;
-            });
-          }
-        }
-      }
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, `users/${currentUser?.uid}`);
-    });
-    return () => unsubMe();
-  }, [currentUser]);
+    }
+  }, [appUser]);
 
   // Load real nearby users from our backend (replaces a Firestore listener
   // that downloaded the ENTIRE users collection to every client and
@@ -2979,12 +2813,22 @@ export function useNearbyController() {
         avatarEmoji: '🙋‍♂️',
         customProfilePhoto: u.avatar_url || undefined,
         distanceMeters,
-        streetName: `${getStateStreets('Osun')[0]} (${walkingMins} mins trek)`,
-        bio: 'Connected in Nigeria!',
+        // Real label resolved by the neighbour's own device and synced to
+        // Postgres. Previously this was hardcoded to
+        // getStateStreets('Osun')[0] -> every user in the app displayed
+        // "Gbongan Rd", a street in Osogbo, regardless of where they were.
+        // When they genuinely haven't shared one we say so instead of
+        // inventing it.
+        streetName:
+          u.street_name ||
+          (distanceMeters !== undefined ? `${walkingMins} mins trek away` : 'Nearby'),
+        bio: u.bio || 'Connected in Nigeria!',
         interests: ['Tech', 'Street Food'],
         publicSnaps: [],
         activeStory: neighborStories[u.id] || [],
-        onlineStatus: 'offline', // presenceMap (separate effect below) overlays real status
+        // Comes straight from the backend now (one Redis mget for the
+        // whole page) rather than a client-side Firestore listener.
+        onlineStatus: u.is_online ? 'online' : 'offline',
         latOffset: 0,
         lngOffset: 0,
         isOutsideRadar: distanceMeters !== undefined ? distanceMeters > radarRadius : true,
@@ -3020,6 +2864,67 @@ export function useNearbyController() {
       return unique;
     });
   }, [nearbyUsersData, currentUser, radarRadius]);
+
+  // -----------------------------------------
+  // Presence
+  // -----------------------------------------
+  // This used to be onSnapshot(collection(db, 'presence')) — a listener on
+  // the ENTIRE collection, so every connected client downloaded every
+  // user's presence document and re-downloaded it whenever ANY user's
+  // status changed. O(n^2) reads, and a direct line to your Firestore bill.
+  //
+  // It is now owned by the backend: usePresenceSync sends a heartbeat to
+  // keep this user's Redis key alive, and the radar response carries
+  // `is_online` for every neighbour (one mget per page of results).
+  // Real-time typing comes over the chat socket instead of a document write.
+  const onlineIds = useMemo(
+    () =>
+      (nearbyUsersData ?? [])
+        .filter((u) => u.is_online)
+        .map((u) => u.id),
+    [nearbyUsersData],
+  );
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const pm: Record<string, { online: boolean; status: 'active' | 'away' | 'offline'; typing: string; lastSeen: string; currentConversation: string }> = {};
+    for (const id of onlineIds) {
+      pm[id] = {
+        online: true,
+        status: 'active',
+        typing: '',
+        lastSeen: '',
+        currentConversation: '',
+      };
+    }
+    setPresenceMap((prev) => ({ ...pm, ...prev, ...pm }));
+  }, [currentUser, onlineIds.join(',')]);
+
+  // Typing indicator over the chat socket — replaces the per-keystroke
+  // setDoc(presence) write the old implementation did.
+  useEffect(() => {
+    if (!currentUser) return;
+    const typingTarget =
+      selectedNeighborId && !selectedNeighbor?.isGroup && textInput.trim()
+        ? selectedNeighborId
+        : '';
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const socket = await getChatSocket();
+        socket.emit('typing', { conversationId: typingTarget, isTyping: Boolean(typingTarget) });
+      } catch {
+        // Not connected yet — typing is a nice-to-have, never worth an error.
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      void cancelled;
+    };
+  }, [textInput, selectedNeighborId, selectedNeighbor?.isGroup, currentUser?.uid]);
 
   // Real presence: heartbeat while the app is open, plus batch online/
   // offline status for the real (non-mock, non-group) neighbors currently
@@ -3152,101 +3057,59 @@ export function useNearbyController() {
   }, [viewingRealProfileId, viewedUserPosts, viewedUserHighlights]);
 
 
-  // Synchronize Group Chats from Firestore in real-time
-  useEffect(() => {
-    if (!currentUser) return;
-    const groupsColRef = collection(db, 'groups');
-    const unsubGroups = onSnapshot(groupsColRef, (snapshot) => {
-      const realGroups: Neighbor[] = [];
-      snapshot.forEach(docSnap => {
-        const g = docSnap.data();
-        const uids = g.groupMembers || [];
-        if (uids.includes(currentUser.uid) || uids.includes('user')) {
-          realGroups.push({
-            id: g.id,
-            name: g.name || 'Group Chat',
-            username: g.username || 'group',
-            avatarColor: g.avatarColor || 'bg-neutral-800 border border-neutral-700',
-            avatarEmoji: g.avatarEmoji || '👥',
-            distanceMeters: 0,
-            streetName: g.streetName || 'Yaba Proximity Hub',
-            bio: g.description || 'Active neighborhood discussion group.',
-            interests: [],
-            publicSnaps: [],
-            activeStory: [],
-            onlineStatus: 'active',
-            latOffset: 0,
-            lngOffset: 0,
-            isGroup: true,
-            groupMembers: uids,
-            groupCreatedBy: g.groupCreatedBy
-          });
-        }
-      });
-      setNeighbors(prev => {
-        const cleanPrev = prev.filter(n => !n.isGroup);
-        return [...realGroups, ...cleanPrev];
-      });
-    }, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'groups');
-    });
-    return () => unsubGroups();
-  }, [currentUser]);
-
-  // Own posts/highlights, now from the backend (polled) instead of two
-  // separate Firestore subcollection listeners.
+  // -----------------------------------------
+  // My own content (posts + status/highlights)
+  // -----------------------------------------
+  // Status/stories now live in the backend `highlights` table. This single
+  // hook replaces what used to be a live per-user Firestore subcollection
+  // listener plus a lazy delete-on-read expiry sweep.
   const { posts: myBackendPosts, highlights: myBackendHighlights, refetch: refetchMyContent } = useUserContent(
     appUser?.id ?? null,
-    Boolean(currentUser) && Boolean(appUser),
+    Boolean(appUser),
   );
+  refetchMyContentRef.current = refetchMyContent;
 
   useEffect(() => {
     if (!appUser) return;
-    const loaded = myBackendPosts.map(p => ({
-      id: p.id,
-      mediaUrl: p.mediaUrl || '',
-      caption: p.caption || '',
-      timestamp: p.createdAt,
-      type: (p.mediaType as 'image' | 'video') || 'image',
-    }));
-    setUserPosts(loaded);
-    try { localStorage.setItem('nearby_cached_posts', JSON.stringify(loaded)); } catch (_) {}
-  }, [appUser, myBackendPosts]);
 
-  useEffect(() => {
-    if (!appUser) return;
-    const loaded = myBackendHighlights.map(h => ({
+    const loadedHighlights = myBackendHighlights.map((h) => ({
       id: h.id,
       name: h.caption || 'Highlight',
       mediaUrl: h.mediaUrl,
     }));
-    setUserHighlights(loaded);
-    try { localStorage.setItem('nearby_cached_highlights', JSON.stringify(loaded)); } catch (_) {}
+    setUserHighlights(loadedHighlights);
+    try { localStorage.setItem('nearby_cached_highlights', JSON.stringify(loadedHighlights)); } catch (_) {}
+
+    // Highlights double as "status" snaps for the 24h ring.
+    const snaps: StorySnap[] = myBackendHighlights.map((h) => ({
+      id: h.id,
+      userId: appUser.id,
+      username: appUser.displayName?.toLowerCase().replace(/\s+/g, '_') || 'me',
+      name: appUser.displayName || 'Me',
+      mediaUrl: h.mediaUrl,
+      type: (h.mediaType === 'video' ? 'video' : 'image') as 'image' | 'video',
+      caption: h.caption || '',
+      timestamp: 'Just now',
+      viewed: false,
+      createdAt: new Date(h.createdAt).getTime(),
+      viewers: [],
+      reactions: [],
+      replies: [],
+      privacy: 'everyone' as const,
+      customList: [],
+    })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+    setMyStorySnaps(snaps);
   }, [appUser, myBackendHighlights]);
 
-  // Load active Group Messages in real-time
-  useEffect(() => {
-    if (!currentUser || !selectedNeighborId || !selectedNeighbor?.isGroup) return;
+  // Group chats previously came from a live listener on the ENTIRE
+  // `groups` collection — every client downloaded every group in the app
+  // and filtered locally. Chat lists now come from chatApi.listConversations,
+  // which returns your direct chats and any group conversations you're in.
 
-    const groupMessagesRef = collection(db, 'groups', selectedNeighborId, 'messages');
-    const groupMessagesQuery = query(groupMessagesRef, orderBy('timestamp', 'asc'));
-
-    const unsubGroupMsgs = onSnapshot(groupMessagesQuery, (snapshot) => {
-      const loadedMsgs: DirectMessage[] = [];
-      snapshot.forEach((docSnap) => {
-        loadedMsgs.push(docSnap.data() as DirectMessage);
-      });
-
-      _setChatMessages(prev => ({
-        ...prev,
-        [selectedNeighborId]: loadedMsgs
-      }));
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, `groups/${selectedNeighborId}/messages`);
-    });
-
-    return () => unsubGroupMsgs();
-  }, [currentUser, selectedNeighborId, selectedNeighbor?.isGroup]);
+  // Group and direct messages both arrive over the same chat socket, keyed
+  // by conversation id — the extra Firestore listener for each open group
+  // thread is gone.
 
   // References
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -3275,9 +3138,11 @@ export function useNearbyController() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       
-      await updateDoc(storyDocRef, {
-        viewers: [...currentViewers, newViewer]
-      });
+      // Story reactions used to be tracked here in a Firestore-only
+      // write. Persisting them properly needs a backend endpoint, so this
+      // is intentionally a no-op rather than a half-migration that would
+      // look like it worked while silently writing nowhere.
+
     } catch (e) {
       console.warn("Failed to mark story as viewed in Firestore:", e);
     }
@@ -3674,18 +3539,13 @@ export function useNearbyController() {
     setSimulatedTypingMap(prev => ({ ...prev, [neighId]: true }));
 
     try {
-      const response = await fetch('/api/my-ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          prompt: `User says: "${userText}". Context instructions: ${contextPrompt}`,
-          image: attachedImage
-        })
+      // Was fetch('/api/my-ai/chat') against a separate Express process.
+      // Now goes through the API layer, so it hits the NestJS backend with
+      // the Firebase bearer token attached (and is rate limited there).
+      const data = await aiApi.myAiChat({
+        prompt: `User says: "${userText}". Context instructions: ${contextPrompt}`,
+        image: attachedImage,
       });
-
-      const data = await response.json();
       const replyText = data.response || "I hear you! That sounds great. ✨";
 
       setSimulatedTypingMap(prev => ({ ...prev, [neighId]: false }));
@@ -3708,7 +3568,17 @@ export function useNearbyController() {
       }));
 
       if (neighId === 'nb-myai' || userText.includes("Voice Note") || userText.includes("🎙️")) {
-        playSynthesizedVoiceNote(neighId === 'nb-myai' ? 'Nearby AI' : 'Neighbor', replyText.slice(0, 100));
+        // `playSynthesizedVoiceNote(senderName, durationSec: number)` loops
+        // `i < durationSec` to emit one beep pair per second. This call used
+        // to pass `replyText.slice(0, 100)` — a STRING. `0 < "some text"` is
+        // `NaN`, so the loop body never executed and the voice-note beeps
+        // were silently skipped every time. It only survived because
+        // `replyText` was `any`; typing the API response is what surfaced it.
+        // Estimate speech length at ~15 characters per second.
+        playSynthesizedVoiceNote(
+          neighId === 'nb-myai' ? 'Nearby AI' : 'Neighbor',
+          Math.max(1, Math.min(30, Math.ceil(replyText.length / 15))),
+        );
       }
 
       triggerBeep(480, 0.12, 'sine');
@@ -4925,7 +4795,7 @@ export function useNearbyController() {
     if (!currentUser) return;
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
+      await persistProfileToBackend({
         contacts: updatedContacts
       });
     } catch (err) {

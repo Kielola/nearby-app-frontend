@@ -2,7 +2,15 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { presenceApi } from '../../../lib/api';
 
-const HEARTBEAT_INTERVAL_MS = 45_000;
+// Must stay comfortably below the server's HEARTBEAT_TTL_SECONDS (90s) or
+// the key expires and the user flickers offline. 60s leaves 30s of slack
+// for a slow network while halving the command count vs 30s.
+const HEARTBEAT_INTERVAL_MS = 60_000;
+
+// Batch status lookups are the single biggest Redis cost in the app, so
+// they run far less often than the heartbeat. The radar response already
+// carries is_online for everyone on it, which is what the UI mostly needs.
+const STATUS_POLL_INTERVAL_MS = 120_000;
 
 // Sends a heartbeat while the app is open (keeps this user's own presence
 // key alive server-side), and separately polls online/offline status for
@@ -38,7 +46,7 @@ export function usePresenceSync(enabled: boolean, watchedUserIds: string[]) {
     queryKey: ['presence', 'status', watchedUserIds.slice().sort().join(',')],
     queryFn: () => presenceApi.getStatus(watchedUserIds),
     enabled: enabled && watchedUserIds.length > 0,
-    refetchInterval: 30_000,
+    refetchInterval: STATUS_POLL_INTERVAL_MS,
   });
 
   return { onlineStatusByUserId: statusQuery.data ?? {} };

@@ -10,8 +10,14 @@ export interface ApiUser {
   email: string | null;
   avatarUrl: string | null;
   bio: string | null;
+  // Human-readable location label resolved from GPS on the client and
+  // synced here so other users can render it. Null until we have a fix
+  // precise enough to name a street — see locationService.
+  streetName: string | null;
+  customStatus: string | null;
   latitude: number | null;
   longitude: number | null;
+  locationAccuracy: number | null;
   lastActiveAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -21,9 +27,26 @@ export interface NearbyUser {
   id: string;
   display_name: string;
   avatar_url: string | null;
+  bio: string | null;
+  // The neighbour's own resolved street label. Previously the frontend
+  // hardcoded this to getStateStreets('Osun')[0] for every single user.
+  street_name: string | null;
+  custom_status: string | null;
   distance_km: string;
   is_friend: boolean;
   has_existing_chat: boolean;
+  // Live online state, read from Redis by the backend on the same query
+  // that fetched distance — replaces the client-side presence listener.
+  is_online: boolean;
+}
+
+export interface PublicProfile {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  streetName: string | null;
+  customStatus: string | null;
 }
 
 export interface Conversation {

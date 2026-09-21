@@ -11,7 +11,6 @@ import {
   GoogleAuthProvider
 } from 'firebase/auth';
 import * as f from 'firebase/firestore';
-import firebaseConfigDefault from '../firebase-applet-config.json';
 import { compressImage } from './utils/imageCompressor';
 
 const envConfig = {
@@ -25,16 +24,42 @@ const envConfig = {
   firestoreDatabaseId: (import.meta as any).env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID
 };
 
+// Firebase config comes from the environment ONLY.
+//
+// There used to be a fallback here to a committed firebase-applet-config.json
+// pointing at the AI Studio project ("nearby-socials"). That meant a build
+// with a single missing env var would silently boot against somebody else's
+// Firebase project — and since the backend verifies tokens against the
+// project named in FIREBASE_PROJECT_ID, every API request would 401 with no
+// obvious cause. Failing loudly at startup is far cheaper to debug.
+const REQUIRED_KEYS = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
+
 const firebaseConfig = {
-  apiKey: envConfig.apiKey || firebaseConfigDefault.apiKey,
-  authDomain: envConfig.authDomain || firebaseConfigDefault.authDomain,
-  projectId: envConfig.projectId || firebaseConfigDefault.projectId,
-  storageBucket: envConfig.storageBucket || firebaseConfigDefault.storageBucket,
-  messagingSenderId: envConfig.messagingSenderId || firebaseConfigDefault.messagingSenderId,
-  appId: envConfig.appId || firebaseConfigDefault.appId,
-  measurementId: envConfig.measurementId || firebaseConfigDefault.measurementId,
-  firestoreDatabaseId: envConfig.firestoreDatabaseId || firebaseConfigDefault.firestoreDatabaseId
+  apiKey: envConfig.apiKey,
+  authDomain: envConfig.authDomain,
+  projectId: envConfig.projectId,
+  storageBucket: envConfig.storageBucket,
+  messagingSenderId: envConfig.messagingSenderId,
+  appId: envConfig.appId,
+  measurementId: envConfig.measurementId,
+  firestoreDatabaseId: envConfig.firestoreDatabaseId,
 };
+
+const missing = REQUIRED_KEYS.filter((k) => !firebaseConfig[k]);
+if (missing.length > 0) {
+  const names = {
+    apiKey: 'VITE_FIREBASE_API_KEY',
+    authDomain: 'VITE_FIREBASE_AUTH_DOMAIN',
+    projectId: 'VITE_FIREBASE_PROJECT_ID',
+    appId: 'VITE_FIREBASE_APP_ID',
+  } as const;
+  const list = missing.map((k) => names[k]).join(', ');
+  throw new Error(
+    `Firebase is not configured. Missing: ${list}. ` +
+      `Set these in your host's build environment (Vite bakes VITE_* vars at ` +
+      `build time, so changing them requires a rebuild).`,
+  );
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)")

@@ -19,7 +19,12 @@ export async function getChatSocket(): Promise<Socket> {
 
   chatSocket = io(SOCKET_URL, {
     auth: { token },
-    transports: ['websocket'],
+    // WebSocket first, but allow the HTTP long-polling fallback. Some
+    // managed proxies (including free-tier PaaS edge networks) occasionally
+    // refuse the upgrade, and without a fallback the socket just never
+    // connects. Polling frames are also ordinary HTTP requests, which keeps
+    // a spin-down-prone host awake.
+    transports: ['websocket', 'polling'],
   });
 
   return chatSocket;

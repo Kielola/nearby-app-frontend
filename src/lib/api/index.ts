@@ -10,3 +10,4 @@ export * from './notificationsApi';
 export * from './presenceApi';
 export * from './reportsApi';
 export * from './meetupsApi';
+export * from './aiApi';

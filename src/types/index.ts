@@ -21,7 +21,11 @@ export interface Neighbor {
   isGroup?: boolean; // GB WhatsApp Style Group chat support
   groupMembers?: string[]; // IDs of neighbors inside the group
   groupCreatedBy?: string; // 'user' or neighbor ID
-  pinned?: boolean; // Pinned chat indicator
+  // Optional: the ids of this user's friends. Not always present — call sites
+  // guard with `Array.isArray(neighbor.friendIds)` before using it, which is
+  // why this must stay optional rather than become required.
+  friendIds?: string[];
+    pinned?: boolean; // Pinned chat indicator
   pinTime?: number; // Sorting pinned chats
   isFriend?: boolean; // Friending limit support
   customProfilePhoto?: string; // Real-time user photo support o!
