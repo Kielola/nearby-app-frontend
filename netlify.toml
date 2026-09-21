@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_PROJECT_ID"
 
 # SPA fallback — must come last. Without this, refreshing any route
 # other than "/" returns 404.
