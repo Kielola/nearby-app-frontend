@@ -25,4 +25,14 @@ export const usersApi = {
   // email, so it's safe to call for anyone you can already see on radar.
   getPublicProfile: (userId: string) =>
     apiRequest<PublicProfile>(`/users/${userId}`),
+
+  // Record acceptance of the Terms of Service. Sends the version string only —
+  // the server sets the timestamp, so the record cannot be backdated by a
+  // client. Idempotent: calling it twice is harmless.
+  acceptTerms: (version: string) =>
+    apiRequest<{
+      id: string;
+      termsAcceptedVersion: string | null;
+      termsAcceptedAt: string | null;
+    }>('/me/terms-acceptance', { method: 'POST', body: { version } }),
 };

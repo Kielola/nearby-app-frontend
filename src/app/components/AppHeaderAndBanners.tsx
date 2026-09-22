@@ -131,6 +131,10 @@ export default function AppHeaderAndBanners() {
     activeTab,
     setActiveTab,
     selectedPreset,
+    locationStatus,
+    locationNeedsUserAction,
+    locationFailureMessage,
+    requestLocation,
     updatePresetWithCoordinates,
     setOnboardingCoords,
     onboardingAddress,
@@ -141,8 +145,6 @@ export default function AppHeaderAndBanners() {
     neighbors,
     setChatFilter,
     setShowContactsModal,
-    topNotification,
-    chatNotification,
     setCustomProfilePhoto,
     currentUser,
     showOnboarding,
@@ -188,44 +190,6 @@ export default function AppHeaderAndBanners() {
 
   return (
     <>
-      {/* 🔔 Real-time Top Notification Overlay */}
-      {topNotification && (
-        <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -50 }}
-          className="absolute top-4 left-4 right-4 z-[9999] bg-neutral-900/95 border border-emerald-500/40 backdrop-blur-md rounded-2xl p-3.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center space-x-3"
-        >
-          <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-lg shadow-[0_0_12px_rgba(16,185,129,0.3)]">
-            {topNotification.icon || "💡"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-extrabold">Discover Hub</p>
-            <p className="text-xs text-white font-medium truncate">{topNotification.message}</p>
-          </div>
-        </motion.div>
-      )}
-
-      {/* 💬 Real-time Chat Page Activity Notification Overlay */}
-      {chatNotification && activeTab === 'chat' && (
-        <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -50 }}
-          className="absolute top-4 left-4 right-4 z-[9999] bg-neutral-900/95 border border-indigo-500/40 backdrop-blur-md rounded-2xl p-3.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center space-x-3"
-        >
-          <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-lg shadow-[0_0_12px_rgba(99,102,241,0.3)]">
-            📢
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-extrabold">New Update</p>
-            <p className="text-xs text-white font-medium leading-tight">{chatNotification.message}</p>
-            {chatNotification.subtext && (
-              <p className="text-[10px] text-zinc-400 mt-0.5">{chatNotification.subtext}</p>
-            )}
-          </div>
-        </motion.div>
-      )}
 
       {/* Onboarding Wizard Fullscreen Overlay */}
       {showOnboarding && currentUser && (
@@ -701,7 +665,9 @@ export default function AppHeaderAndBanners() {
             title="Click to search Nigeria States"
           >
             <Globe className={`w-4 h-4 ${appTheme === 'dark' ? 'text-[#F9FAFB]' : 'text-[#111827]'}`} />
-            <span className={`text-xs font-display font-bold uppercase tracking-wider ${appTheme === 'dark' ? 'text-[#F9FAFB]' : 'text-[#111827]'}`}>{selectedPreset.city || "Lagos"}</span>
+            <span className={`text-xs font-display font-bold uppercase tracking-wider ${appTheme === 'dark' ? 'text-[#F9FAFB]' : 'text-[#111827]'}`}>
+              {locationStatus.state === 'ready' && selectedPreset.city ? selectedPreset.city : 'Set Location'}
+            </span>
           </button>
         </div>
 
@@ -843,17 +809,56 @@ export default function AppHeaderAndBanners() {
           ? 'bg-neutral-900/60 border-neutral-800 text-neutral-300' 
           : 'bg-neutral-50 border-neutral-150 text-neutral-600'
       }`}>
-        <div className="flex items-center space-x-1.5 min-w-0">
-          <MapPin className="w-3.5 h-3.5 text-brand-blue animate-pulse shrink-0" />
-          <span className="text-[10px] uppercase tracking-wider font-bold shrink-0">Neighborhood:</span>
-          <span className="text-[11px] font-black truncate max-w-[200px] text-[#111827] dark:text-neutral-100">{selectedPreset.name || "Nearby"}</span>
-        </div>
-        
-        <div className="flex items-center space-x-1.5 font-mono text-[10px] shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[9.5px] uppercase font-bold text-neutral-450 dark:text-neutral-500">GPS Link:</span>
-          <span className="font-bold text-emerald-500">CONNECTED</span>
-        </div>
+        {/* Neighborhood — only claims a name when we hold a real fix.
+            When we do not, this offers the one thing iOS Safari will honour:
+            a direct tap. */}
+        {locationStatus.state === 'ready' && selectedPreset.name ? (
+          <div className="flex items-center space-x-1.5 min-w-0">
+            <MapPin className="w-3.5 h-3.5 text-brand-blue animate-pulse shrink-0" />
+            <span className="text-[10px] uppercase tracking-wider font-bold shrink-0">Neighborhood:</span>
+            <span className="text-[11px] font-black truncate max-w-[200px] text-[#111827] dark:text-neutral-100">{selectedPreset.name}</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { triggerBeep(520, 0.04, 'sine'); void requestLocation(true); }}
+            className="flex items-center space-x-1.5 min-w-0 text-left"
+            title={locationFailureMessage || 'Tap to set your location'}
+          >
+            <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            {locationStatus.state === 'locating' ? (
+              <>
+                <span className="text-[10px] uppercase tracking-wider font-bold shrink-0 text-neutral-450 dark:text-neutral-500">Neighborhood:</span>
+                <span className="text-[11px] font-black truncate max-w-[200px] text-amber-500">Locating…</span>
+              </>
+            ) : (
+              <>
+                <span className="text-[10px] uppercase tracking-wider font-bold shrink-0 text-neutral-450 dark:text-neutral-500">Neighborhood:</span>
+                <span className="text-[11px] font-black truncate max-w-[200px] text-amber-500 underline decoration-dotted underline-offset-2">
+                  {locationNeedsUserAction ? 'Enable Location' : 'Location not set'}
+                </span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* GPS state — was a hardcoded green "CONNECTED" even with no fix at
+            all, which is what made a demo preset look trustworthy. */}
+        {locationStatus.state === 'ready' ? (
+          <div className="flex items-center space-x-1.5 font-mono text-[10px] shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[9.5px] uppercase font-bold text-neutral-450 dark:text-neutral-500">GPS Link:</span>
+            <span className="font-bold text-emerald-500">CONNECTED</span>
+          </div>
+        ) : (
+          <div className="flex items-center space-x-1.5 font-mono text-[10px] shrink-0">
+            <span className={`w-1.5 h-1.5 rounded-full ${locationStatus.state === 'locating' ? 'bg-amber-500 animate-pulse' : 'bg-neutral-400'}`} />
+            <span className="text-[9.5px] uppercase font-bold text-neutral-450 dark:text-neutral-500">GPS Link:</span>
+            <span className={`font-bold ${locationStatus.state === 'locating' ? 'text-amber-500' : 'text-neutral-400'}`}>
+              {locationStatus.state === 'locating' ? 'SEARCHING' : locationNeedsUserAction ? 'BLOCKED' : 'OFFLINE'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* --- Iframe Sandbox Persistence Warning Banner --- */}

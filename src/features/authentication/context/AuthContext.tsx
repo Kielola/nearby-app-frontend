@@ -2,6 +2,10 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../../../firebase';
 import { usersApi } from '../../../lib/api';
+import {
+  clearPendingTermsAcceptance,
+  peekPendingTermsAcceptance,
+} from '../../legal/pendingAcceptance';
 import { ApiUser } from '../../../lib/api/types';
 
 interface AuthContextValue {
@@ -43,6 +47,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Postgres row on first login (see UsersService.findOrCreateByFirebaseUid).
         const me = await usersApi.getMe();
         setAppUser(me);
+
+        // Claim any terms acceptance the user gave on the sign-up screen.
+        //
+        // The agreement is shown BEFORE the account exists, so the acceptance
+        // could not be sent at the moment the button was pressed. This is the
+        // first point where an authenticated write is possible — `getMe()` has
+        // just provisioned the row for a brand-new account.
+        //
+        // Runs on every login, not only on sign-up: if a previous attempt failed
+        // mid-flight the note is still outstanding, and this is what retries it.
+        const owedVersion = peekPendingTermsAcceptance();
+        if (owedVersion && me?.termsAcceptedVersion !== owedVersion) {
+          try {
+            await usersApi.acceptTerms(owedVersion);
+            // Cleared only now, after the server has the record.
+            clearPendingTermsAcceptance();
+          } catch {
+            // Left outstanding on purpose — retried on the next app load.
+            console.warn('[terms] acceptance not yet recorded; will retry on next load');
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err : new Error('Failed to load user profile'));
         setAppUser(null);

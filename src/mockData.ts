@@ -5,7 +5,31 @@ export interface LocationPreset {
   city: string;
   coords: { lat: number; lng: number };
   streets: string[];
+  /**
+   * True when this is a map placeholder rather than somewhere the user
+   * actually is. The UI must never print a placeholder as if it were the
+   * user's real location — that is the bug where iOS Safari showed
+   * "Ogo-Oluwa, Osogbo" to someone standing in Lagos.
+   */
+  isPlaceholder?: boolean;
 }
+
+/**
+ * What `selectedPreset` holds before we have a real GPS fix.
+ *
+ * The coordinates are Lagos city centre purely so the map and radar have
+ * somewhere sane to render — they are NOT claimed to be the user's position.
+ * `isPlaceholder` is what tells the UI to say "Location not set" instead of
+ * printing a neighbourhood name, and nothing here is ever written to
+ * localStorage as if it were real.
+ */
+export const UNKNOWN_LOCATION: LocationPreset = {
+  name: '',
+  city: '',
+  coords: { lat: 6.5244, lng: 3.3792 },
+  streets: [],
+  isPlaceholder: true,
+};
 
 export const NEIGHBORHOODS: LocationPreset[] = [
   {

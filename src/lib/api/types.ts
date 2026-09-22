@@ -19,6 +19,11 @@ export interface ApiUser {
   longitude: number | null;
   locationAccuracy: number | null;
   lastActiveAt: string | null;
+  // Which version of the Terms of Service this user has agreed to, and when the
+  // server recorded it. Null means they have never accepted any version — the
+  // sign-up gate reads this to decide whether to show the agreement.
+  termsAcceptedVersion: string | null;
+  termsAcceptedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +63,11 @@ export interface ChatMessage {
   id: string;
   conversationId: string;
   senderId: string;
+  // Present only on live socket broadcasts. Echoes the idempotency key the
+  // sending client generated, so that client can match the echo to the
+  // optimistic bubble it already rendered. Absent on REST history, where the
+  // server id is all that's needed.
+  clientId?: string | null;
   content: string | null;
   mediaUrl: string | null;
   mediaType: 'image' | 'video' | 'voice' | 'document' | null;

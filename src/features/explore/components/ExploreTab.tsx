@@ -26,7 +26,13 @@ import {
   AlertTriangle,
   Info
 } from 'lucide-react';
-import { db, auth, collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, deleteDoc, uploadToStorage, createNotification } from '../../../firebase';
+import { db, auth, collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, deleteDoc, uploadToStorage } from '../../../firebase';
+// Notifications go through the backend, like every other writer in the app.
+// This file used to import the Firestore copy from '../../../firebase', which
+// wrote to a `/notifications` collection the backend no longer reads — so the
+// notification was created and then never seen by anyone. One writer, one
+// source of truth.
+import { createNotification } from '../../notifications/services/createNotification';
 import { Neighbor } from '../../../types';
 import { aiApi } from '../../../lib/api';
 import { useMap, useMapsLibrary } from '@vis.gl/react-google-maps';

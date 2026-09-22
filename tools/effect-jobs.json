@@ -1,0 +1,86 @@
+[
+  {
+    "contains": "const handleFirestoreErr = (e: Event) => {",
+    "out": "src/features/system/hooks/useFirestoreHealthCheck.ts",
+    "hook": "useFirestoreHealthCheck",
+    "title": "Surfacing a Firestore failure to the user",
+    "doc": "Listens for the global error events Firebase raises when a project runs out of quota or loses billing, so the app can explain what happened instead of silently showing empty lists."
+  },
+  {
+    "contains": "const handleOnline = () => {",
+    "out": "src/features/system/hooks/useOnlineStatus.ts",
+    "hook": "useOnlineStatus",
+    "title": "Browser connectivity",
+    "doc": "Tracks navigator.onLine so the UI can distinguish 'no connection' from 'no results nearby' — two states that used to look identical to a user on a flaky mobile network."
+  },
+  {
+    "contains": "setSearchMatchIds(matches);",
+    "out": "src/features/chat/hooks/useChatSearchMatches.ts",
+    "hook": "useChatSearchMatches",
+    "title": "In-conversation search results",
+    "doc": "Recomputes which messages in the open thread match the search box, and parks the cursor on the newest hit. Re-runs only when the query, the thread or the message list changes."
+  },
+  {
+    "contains": "setMeetupRatings((profileRatingsData ?? []).map(r => ({",
+    "out": "src/features/meetups/hooks/useMeetupRatingsSync.ts",
+    "hook": "useMeetupRatingsSync",
+    "title": "Ratings shown on a neighbour's profile",
+    "doc": "Maps the ratings the backend returns for the neighbour being viewed into the shape the profile screen renders."
+  },
+  {
+    "contains": "incomingRequestsByUserIdRef.current = incomingRequestsByUserId;",
+    "out": "src/features/social/hooks/useIncomingRequestsRef.ts",
+    "hook": "useIncomingRequestsRef",
+    "title": "A ref mirror of the incoming friend requests",
+    "doc": "The friend-request badges are read from callbacks that must not re-create on every poll, so the latest value is mirrored into a ref instead of being closed over."
+  },
+  {
+    "contains": "const fUser = auth.currentUser;",
+    "out": "src/features/profile/hooks/useProfileBackendPersistence.ts",
+    "hook": "useProfileBackendPersistence",
+    "title": "Writing profile changes back to the server",
+    "doc": "Debounced, so typing in a bio does not fire a request per keystroke, and gated on the profile having loaded, so a cold start cannot overwrite the server's copy with placeholder values. Every field it sends is listed explicitly — the backend owns the shape of the user row, and a partial write must not clobber columns this screen does not own."
+  },
+  {
+    "contains": "if (!appUser) return;\n\n    if (appUser.displayName && appUser.displayName !== 'Nearby Member') {",
+    "out": "src/features/profile/hooks/useServerProfileAdoption.ts",
+    "hook": "useServerProfileAdoption",
+    "title": "Adopting values the server authored",
+    "doc": "Applies the profile the backend returns onto local state, but only where the server actually has a value. An empty column must not blank out something the user typed on this device before the write landed."
+  },
+  {
+    "contains": "const realUsers: Neighbor[] = nearbyUsersData.map((u) => {",
+    "out": "src/features/neighbors/hooks/useNearbyNeighbors.ts",
+    "hook": "useNearbyNeighbors",
+    "title": "Turning the nearby-users result into neighbours",
+    "doc": "Converts the backend's rows into the shape the radar and list render, including the distance in metres and the walking estimate. This is the one place the two representations meet."
+  },
+  {
+    "contains": "setPresenceMap(prev => {",
+    "out": "src/features/presence/hooks/usePresenceMapSync.ts",
+    "hook": "usePresenceMapSync",
+    "title": "Merging live presence into the presence map",
+    "doc": "Folds the realtime online/offline feed into the map the UI reads. Merges rather than replaces, so a neighbour missing from one payload is not briefly shown as offline."
+  },
+  {
+    "contains": "const targetId = viewingNeighborProfile.id;",
+    "out": "src/features/neighbors/hooks/useViewedNeighborContent.ts",
+    "hook": "useViewedNeighborContent",
+    "title": "Posts and highlights for the profile being viewed",
+    "doc": "Loads what a neighbour has posted for as long as their profile is open, and clears it when the viewer closes — otherwise the next profile opened shows the previous neighbour's content for a frame."
+  },
+  {
+    "contains": "if (!viewingRealProfileId) return;",
+    "out": "src/features/neighbors/hooks/useViewedUserContent.ts",
+    "hook": "useViewedUserContent",
+    "title": "Posts and highlights for a real (non-demo) neighbour",
+    "doc": "The backend-backed path for a neighbour who actually exists, kept separate from the demo-data path so a missing row reads as 'nothing yet' rather than falling back to invented content."
+  },
+  {
+    "contains": "refetchMyContentRef.current = refetchMyContent;",
+    "out": "src/features/profile/hooks/useMyHighlights.ts",
+    "hook": "useMyHighlights",
+    "title": "The signed-in user's own highlights",
+    "doc": "Projects the backend's highlights into the local shape, caches them so the profile renders instantly on the next cold start, and publishes the refetch function through the ref the upload path holds."
+  }
+]

@@ -151,7 +151,7 @@ export const PremiumProfileView = React.memo(function PremiumProfileView({
   setViewingUserPostDetail,
   setShowFriendsModal,
   logoutUser
-}) {
+}: PremiumProfileViewProps) {
   // Local overlay states
   const [fullscreenPhotoUrl, setFullscreenPhotoUrl] = useState<string | null>(null);
   const [showInlineRatingForm, setShowInlineRatingForm] = useState<boolean>(false);

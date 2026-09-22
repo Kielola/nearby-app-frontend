@@ -1,0 +1,25 @@
+[
+  {
+    "hook": "useOnboardingState",
+    "names": [
+      "onboardingAddress",
+      "onboardingAgeRange",
+      "onboardingBio",
+      "onboardingCamStatus",
+      "onboardingCommunities",
+      "onboardingCoords",
+      "onboardingGender",
+      "onboardingGpsStatus",
+      "onboardingInterests",
+      "onboardingName",
+      "onboardingPhoto",
+      "onboardingState",
+      "onboardingStep",
+      "onboardingStreetName",
+      "onboardingUsername"
+    ],
+    "out": "src/features/authentication/hooks/useOnboardingState.ts",
+    "title": "The onboarding wizard's form state",
+    "doc": "What the user has typed or picked so far in the sign-up wizard. Only the wizard reads and writes these, so they need no dependencies either."
+  }
+]

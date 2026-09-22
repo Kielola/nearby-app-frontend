@@ -8,6 +8,9 @@ import { DirectMessage } from '../../../types';
 function toDirectMessage(m: ChatMessage, myUserId: string): DirectMessage {
   return {
     id: m.id,
+    // Only set on live socket broadcasts. The sender uses it to replace its
+    // optimistic bubble rather than adding a duplicate.
+    clientId: m.clientId || undefined,
     senderId: m.senderId === myUserId ? 'user' : m.senderId,
     receiverId: '', // filled in by caller per-thread; the grouping key carries this
     timestamp: m.createdAt,
@@ -122,6 +125,10 @@ export function useChatSync({ myUserId, enabled, activeNeighborId, onMessagesFor
   async function sendChatMessage(
     neighborId: string,
     data: {
+      // Idempotency key from the caller. Echoed back by the server so the
+      // sender can reconcile its optimistic bubble — see useNearbyController's
+      // onIncomingMessage. Without it the sender renders the message twice.
+      clientId?: string;
       content?: string;
       mediaUrl?: string;
       mediaType?: 'image' | 'video' | 'voice' | 'document';

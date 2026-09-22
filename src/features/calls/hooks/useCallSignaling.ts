@@ -3,6 +3,11 @@ import { getCallSocket } from '../../../lib/socket/callSocket';
 import { CallState, DirectMessage, Neighbor } from '../../../types';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ApiUser } from '../../../lib/api/types';
+import {
+  describeIceConfiguration,
+  getIceServers,
+  getRelayOnlyIceServers,
+} from '../iceServers';
 
 interface UseCallSignalingParams {
   currentUser: FirebaseUser | null;
@@ -16,17 +21,11 @@ interface UseCallSignalingParams {
   ) => void;
 }
 
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-];
+// ICE servers now come from `features/calls/iceServers`, which reads the relay
+// from build-time config and falls back to a shared public one. See that file
+// for why a relay is mandatory on Nigerian mobile networks — short version:
+// carrier-grade NAT means the direct path ICE prefers cannot carry the media,
+// so the call rings and then fails.
 
 // The whole audio/video call domain: WebRTC peer connection setup, call
 // signaling (via CallGateway over Socket.IO), and the transport controls
@@ -35,6 +34,71 @@ const ICE_SERVERS = [
 // picked first because it's freshly rewired (the signaling swap from
 // Firestore to sockets happened this same session) and has the most
 // clearly enumerable set of external dependencies of any domain in there.
+/**
+ * Respond to an ICE failure by re-gathering candidates instead of dropping the
+ * call.
+ *
+ * ## Why this exists
+ *
+ * The previous behaviour was to set the quality indicator to "Connection
+ * dropped." and stop. The peer connection stayed in its failed state, so the
+ * call was simply dead: the user saw a connected call go silent, with no
+ * recovery attempted and nothing to explain it.
+ *
+ * `restartIce()` re-runs candidate gathering on the SAME connection and
+ * renegotiates over the existing signalling channel. That recovers the two
+ * things that most often kill a call on Nigerian mobile networks:
+ *
+ *   - a change of network mid-call (Wi-Fi to mobile data, or a cell handover),
+ *     where the candidate pair that was working is now unreachable;
+ *   - a relay allocation that expired or was dropped by the TURN server.
+ *
+ * Retries are bounded. Looping forever against a peer that is genuinely offline
+ * would spend the user's data allowance re-gathering candidates indefinitely, so
+ * after the limit the call is reported as failed rather than silently retried.
+ */
+const MAX_ICE_RESTARTS = 2;
+
+function handleIceFailure(
+  pc: RTCPeerConnection,
+  onExhausted?: () => void,
+  setQuality?: (q: string, desc: string) => void,
+): void {
+  const attempts = ((pc as any).__nearbyIceRestarts as number) ?? 0;
+
+  if (attempts >= MAX_ICE_RESTARTS) {
+    console.warn(
+      `[calls] ICE failed after ${attempts} restart(s); giving up. ` +
+        `ICE configuration: ${describeIceConfiguration()}. ` +
+        'If this happens on mobile data, the relay is the likely cause — set ' +
+        'VITE_TURN_URLS / VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL to a real ' +
+        'TURN service and rebuild.',
+    );
+    setQuality?.('failed', 'Could not establish a connection. Please try again.');
+    onExhausted?.();
+    return;
+  }
+
+  (pc as any).__nearbyIceRestarts = attempts + 1;
+
+  console.warn(
+    `[calls] ICE failed; restart attempt ${attempts + 1}/${MAX_ICE_RESTARTS}. ` +
+      `ICE configuration: ${describeIceConfiguration()}`,
+  );
+
+  setQuality?.('poor', 'Reconnecting…');
+
+  try {
+    pc.restartIce();
+  } catch (err) {
+    // Older WebKit builds do not implement restartIce(). Nothing further to try
+    // on this connection, so report it rather than pretending to recover.
+    console.warn('[calls] restartIce() unavailable:', err);
+    setQuality?.('failed', 'Connection lost. Please try again.');
+    onExhausted?.();
+  }
+}
+
 export function useCallSignaling({
   currentUser,
   appUser,
@@ -293,7 +357,7 @@ export function useCallSignaling({
         localVideoRef.current.srcObject = stream;
       }
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: getIceServers(), iceCandidatePoolSize: 4 });
       pcRef.current = pc;
 
       stream.getTracks().forEach((track) => {
@@ -321,12 +385,24 @@ export function useCallSignaling({
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState;
         setIceConnectionState(state);
-        if (state === 'disconnected' || state === 'failed') {
-          setNetworkQuality('poor');
-          setNetworkQualityDesc('Connection dropped.');
-        } else if (state === 'connected' || state === 'completed') {
+        if (state === 'connected' || state === 'completed') {
           setNetworkQuality('excellent');
           setNetworkQualityDesc('Secure Connection Established');
+          return;
+        }
+        if (state === 'failed') {
+          handleIceFailure(pc, undefined, (q, desc) => {
+            setNetworkQuality(q as any);
+            setNetworkQualityDesc(desc);
+          });
+          return;
+        }
+        if (state === 'disconnected') {
+          // Transient far more often than fatal — a handover between cell towers
+          // looks exactly like this. Reported, but not acted on immediately;
+          // `failed` is the state that means it is actually over.
+          setNetworkQuality('poor');
+          setNetworkQualityDesc('Connection unstable — reconnecting…');
         }
       };
 
@@ -482,7 +558,7 @@ export function useCallSignaling({
           localVideoRef.current.srcObject = stream;
         }
 
-        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        const pc = new RTCPeerConnection({ iceServers: getIceServers(), iceCandidatePoolSize: 4 });
         pcRef.current = pc;
 
         stream.getTracks().forEach((track) => {
@@ -510,12 +586,24 @@ export function useCallSignaling({
         pc.oniceconnectionstatechange = () => {
           const state = pc.iceConnectionState;
           setIceConnectionState(state);
-          if (state === 'disconnected' || state === 'failed') {
-            setNetworkQuality('poor');
-            setNetworkQualityDesc('Connection dropped.');
-          } else if (state === 'connected' || state === 'completed') {
+          if (state === 'connected' || state === 'completed') {
             setNetworkQuality('excellent');
             setNetworkQualityDesc('Secure Connection Established');
+            return;
+          }
+          if (state === 'failed') {
+            handleIceFailure(pc, undefined, (q, desc) => {
+              setNetworkQuality(q as any);
+              setNetworkQualityDesc(desc);
+            });
+            return;
+          }
+          if (state === 'disconnected') {
+            // Transient far more often than fatal — a handover between cell towers
+            // looks exactly like this. Reported, but not acted on immediately;
+            // `failed` is the state that means it is actually over.
+            setNetworkQuality('poor');
+            setNetworkQualityDesc('Connection unstable — reconnecting…');
           }
         };
 

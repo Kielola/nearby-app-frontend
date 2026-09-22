@@ -1,24 +1,51 @@
+# Netlify configuration — commit this to the FRONTEND repo root.
+#
+# Netlify reads this automatically. It replaces the two things you would
+# otherwise type into the dashboard, and adds the SPA redirect that is the
+# difference between "deep links work" and "every refresh is a 404".
+
 [build]
   command = "npm run build"
   publish = "dist"
 
 [build.environment]
+  # Match the backend. Node 22 is what the frontend declares in engines
+  # (">=22") and what Netlify's default image provides.
   NODE_VERSION = "22"
-  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_PROJECT_ID"
 
-# SPA fallback — must come last. Without this, refreshing any route
-# other than "/" returns 404.
+# ─────────────────────────────────────────────────────────────────────────────
+# SPA FALLBACK — REQUIRED
+#
+# The app is a single-page app: React Router handles /chat, /profile and so on
+# in the browser. A real HTTP request for those paths does not exist on disk, so
+# without this rule Netlify returns 404 for every deep link and every refresh
+# that is not on "/".
+#
+# status = 200 (not 301) is deliberate: it rewrites rather than redirects, so the
+# URL stays as the user typed it.
+#
+# This rule must come LAST — Netlify applies redirects in order.
+# ─────────────────────────────────────────────────────────────────────────────
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
+# Hashed asset filenames change on every build, so they can be cached forever.
 [[headers]]
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# index.html must NOT be cached, or a redeploy serves the old app to anyone
+# with a warm browser cache — the classic "my fix didn't go live" bug.
 [[headers]]
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

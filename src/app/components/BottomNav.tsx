@@ -131,7 +131,6 @@ export default function BottomNav() {
     activeTab,
     setActiveTab,
     setSelectedNeighbor,
-    chatNotification,
     appTheme,
     triggerBeep,
   } = useNearbyRuntime();
@@ -199,9 +198,6 @@ export default function BottomNav() {
             >
               <MessageCircle className="w-[20px] h-[20px]" style={{ strokeWidth: 2.2 }} />
             </motion.div>
-            {chatNotification && (
-              <span className={`absolute -top-1 -right-1 w-2 h-2 rounded-full border bg-red-500 animate-pulse`} />
-            )}
           </div>
           <span className={`text-[10px] font-bold font-sans mt-0.5 transition-colors duration-180 ${
             activeTab === 'chat' ? 'text-[#0F8A5F]' : 'text-[#8E8E93]'

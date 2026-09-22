@@ -4,7 +4,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import GoogleMapIntegration from '../../features/maps/components/GoogleMapIntegration';
 import { OnboardingScreen } from '../../features/authentication/components/OnboardingScreen';
 import { CallOverlay } from '../../features/calls/components/CallOverlay';
-import { LandingScreen } from '../../features/authentication/components/LandingScreen';
+import { useAuthFormState } from '../../features/authentication/hooks/useAuthFormState';
+import TermsConsentScreen from '../../features/legal/components/TermsConsentScreen';
+import { markPendingTermsAcceptance } from '../../features/legal/pendingAcceptance';
+import { TERMS_VERSION } from '../../features/legal/content/termsOfService';
 import {
   MapPin,
   Instagram,
@@ -145,12 +148,6 @@ export default function AuthGate() {
   setShowPassword,
   showConfirmPassword,
   setShowConfirmPassword,
-  authEmailOrPhone,
-  setAuthEmailOrPhone,
-  authPassword,
-  setAuthPassword,
-  authConfirmPassword,
-  setAuthConfirmPassword,
   setAuthIsSignUp,
   setIsPhoneAuthOption,
   authError,
@@ -162,7 +159,53 @@ export default function AuthGate() {
   triggerBeep,
 } = useNearbyRuntime();
 
-    if (!currentUser) {
+// The three typed fields are local to this screen, not the controller. Holding
+// them in the controller re-rendered the entire app on every keystroke — see
+// `useAuthFormState` for the full explanation. Aliased to the names used
+// throughout this file so nothing below had to change.
+const {
+  emailOrPhone: authEmailOrPhone,
+  password: authPassword,
+  confirmPassword: authConfirmPassword,
+  setEmailOrPhone: setAuthEmailOrPhone,
+  setPassword: setAuthPassword,
+  setConfirmPassword: setAuthConfirmPassword,
+} = useAuthFormState();
+
+// Terms gate for new registrations.
+//
+// `signupTermsAgreed` records that the user pressed I AGREE during THIS session.
+// It does not itself constitute the record — that is written server-side the
+// moment the account exists (see AuthContext). The value only decides whether
+// the consent screen is still in the way.
+const [signupTermsAgreed, setSignupTermsAgreed] = useState(false);
+const [showTermsGate, setShowTermsGate] = useState(false);
+
+    // Rendered before the main auth UI so it cannot be skipped or dismissed by
+  // navigating within the form.
+  if (showTermsGate && !signupTermsAgreed) {
+    return (
+      <TermsConsentScreen
+        onAccepted={() => {
+          // Park the acknowledgement so AuthContext can write it the instant
+          // the new account's row exists.
+          markPendingTermsAcceptance(TERMS_VERSION);
+          setSignupTermsAgreed(true);
+          setShowTermsGate(false);
+          // Now that agreement is on record locally, proceed with signup.
+          loginWithEmailOrPhone(authEmailOrPhone, authPassword, true, false, authConfirmPassword);
+        }}
+        onDecline={() => {
+          setShowTermsGate(false);
+          setAuthError('You must accept the Terms of Service to create an account.');
+        }}
+        onBack={() => setShowTermsGate(false)}
+        accept={async () => true}
+      />
+    );
+  }
+
+  if (!currentUser) {
     if (showWelcomeTour) {
       const handleNext = () => {
         triggerBeep(380, 0.08);
@@ -713,7 +756,16 @@ export default function AuthGate() {
                     <motion.button
                       whileTap={{ scale: 0.98 }}
                       disabled={authLoading}
-                      onClick={() => loginWithEmailOrPhone(authEmailOrPhone, authPassword, authScreenState === 'signup', false)}
+                      onClick={() => {
+                        // A NEW account must not be created before the user has
+                        // seen and accepted the agreement. Present it now and
+                        // let the consent screen call back into signup.
+                        if (authScreenState === 'signup' && !signupTermsAgreed) {
+                          setShowTermsGate(true);
+                          return;
+                        }
+                        loginWithEmailOrPhone(authEmailOrPhone, authPassword, authScreenState === 'signup', false, authConfirmPassword);
+                      }}
                       className="w-full h-[58px] bg-[#0F8A5F] hover:bg-[#0C7A53] text-white rounded-[18px] text-[15px] font-semibold tracking-wide transition duration-180 flex items-center justify-center cursor-pointer shadow-[0_4px_14px_rgba(15,138,95,0.25)] relative overflow-hidden"
                       style={{ minHeight: '48px' }}
                     >
@@ -759,7 +811,7 @@ export default function AuthGate() {
                     <motion.button
                       whileTap={{ scale: 0.98 }}
                       disabled={authLoading}
-                      onClick={handleSendResetLink}
+                      onClick={() => handleSendResetLink(authEmailOrPhone)}
                       className="w-full h-[58px] bg-[#0F8A5F] hover:bg-[#0C7A53] text-white rounded-[18px] text-[15px] font-semibold tracking-wide transition duration-180 flex items-center justify-center cursor-pointer shadow-[0_4px_14px_rgba(15,138,95,0.25)]"
                       style={{ minHeight: '48px' }}
                     >

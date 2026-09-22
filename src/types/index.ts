@@ -25,7 +25,7 @@ export interface Neighbor {
   // guard with `Array.isArray(neighbor.friendIds)` before using it, which is
   // why this must stay optional rather than become required.
   friendIds?: string[];
-    pinned?: boolean; // Pinned chat indicator
+  pinned?: boolean; // Pinned chat indicator
   pinTime?: number; // Sorting pinned chats
   isFriend?: boolean; // Friending limit support
   customProfilePhoto?: string; // Real-time user photo support o!
@@ -89,6 +89,10 @@ export interface StorySnap {
 
 export interface DirectMessage {
   id: string;
+  // The id this message was created with on the client that sent it. The
+  // server echoes it back on the live broadcast so the sender can reconcile
+  // its optimistic bubble instead of rendering the message twice.
+  clientId?: string;
   senderId: string; // 'user' or neighbor ID
   receiverId: string;
   timestamp: string;

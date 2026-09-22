@@ -1,5 +1,34 @@
 rules_version = '2';
 
+// ============================================================================
+// Nearby — Firestore security rules
+//
+// These were rewritten against what the code ACTUALLY does, not what it did
+// before the backend migration. Several rules in the previous version guarded
+// collections the client no longer touches, and two of them called a helper
+// that could never return true. The dead rules have been removed rather than
+// left in, because a rule that silently denies is far harder to diagnose than
+// a rule that does not exist.
+//
+// What moved to the NestJS backend and therefore no longer needs a rule here:
+//
+//   friendships         → friendsApi        (was: /friendships/{pairId})
+//   friend requests     → friendsApi        (was: /friend_requests/{id})
+//   direct messages     → chatApi + Socket.IO (was: /direct_messages/{id})
+//   notifications       → notificationsApi  (was: /notifications/{id})
+//   call signalling     → Socket.IO
+//   meetups and ratings → meetupsApi        (was: /meetups, /meetupRatings)
+//   user profile reads  → usersApi          (/users/{uid} is still read as a
+//                                            cache, so its rule stays)
+//
+// IMPORTANT: the backend uses the Firebase Admin SDK, which BYPASSES these
+// rules entirely. Nothing here restricts the server. These rules only govern
+// what a signed-in browser may read and write directly.
+//
+// Collections intentionally NOT open: anything not matched below falls through
+// to the catch-all at the end and is denied.
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -11,59 +40,36 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // Deterministic relationship document id: the two uids sorted and joined.
-    // Both users compute the SAME id, so a friendship is exactly one document.
-    function pairId(uidA, uidB) {
-      return uidA < uidB ? uidA + '_' + uidB : uidB + '_' + uidA;
-    }
-
-    // A friendship is now ONE document with one status field - not two arrays
-    // living in two separately-owned user docs that had to agree. The old
-    // version required uidA to be in uidB's friendIds AND vice versa, so any
-    // write that clobbered either array (a profile save, a failed cross-account
-    // write) permanently broke messaging with no way to recover. One doc cannot
-    // disagree with itself.
-    function areFriends(uidA, uidB) {
-      return signedIn()
-        && uidA is string
-        && uidB is string
-        && uidA != uidB
-        && exists(/databases/$(database)/documents/friendships/$(pairId(uidA, uidB)))
-        && get(/databases/$(database)/documents/friendships/$(pairId(uidA, uidB))).data.get('status', '') == 'accepted';
-    }
-
+    // ------------------------------------------------------------------
+    // The signed-in user's own document and their content.
+    //
+    // /users/{uid} is still read directly by the client (the profile screen
+    // falls back to it when the API is slow, and ExploreTab reads other
+    // neighbours' documents), so it stays readable to any signed-in user.
+    //
+    // Ratings and trust aggregates are computed by the backend now — no client
+    // can write to another user's document at all. That removes the entire
+    // class of bug where one client's local running average disagreed with
+    // everyone else's.
+    // ------------------------------------------------------------------
     match /users/{userId} {
       allow read: if signedIn();
-      allow create: if isOwner(userId);
+      allow create, update, delete: if isOwner(userId);
 
-      // No more cross-account friendIds writes. Friendship lives in
-      // /friendships/{pairId} now, so nobody ever needs to reach into another
-      // user's document to become their friend. Only rating aggregates remain.
-      allow update: if isOwner(userId)
-        || (
-          signedIn()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'ratingsCount',
-            'totalRatingPoints',
-            'trustScore',
-            'meetupsCompleted',
-            'meetupHappened',
-            'ratedBy'
-          ])
-        );
-
-      allow delete: if isOwner(userId);
-
+      // The signed-in user's own private message mirror. Owner-only, because
+      // these documents are messages this device wrote.
       match /messages/{messageId} {
         allow read, write: if isOwner(userId);
       }
 
+      // Stories. Anyone signed in may read them — that is what makes a story
+      // visible. Only the author may write, with ONE exception that the app
+      // genuinely relies on: a viewer appends themselves to `viewers` so the
+      // author can see who watched. That single key is the only thing a
+      // non-owner is permitted to touch, so a viewer cannot edit or delete
+      // someone else's story.
       match /stories/{storyId} {
         allow read: if signedIn();
-        // Owner can do anything with their own stories. Anyone else signed-in may
-        // only append themselves to the `viewers` array (view-tracking) - this is
-        // what markStoryAsViewedInFirestore() actually does, and it was previously
-        // blocked outright because only the owner could write here at all.
         allow write: if isOwner(userId)
           || (
             signedIn()
@@ -71,6 +77,7 @@ service cloud.firestore {
           );
       }
 
+      // Posts and highlights on a profile page.
       match /posts/{postId} {
         allow read: if signedIn();
         allow write: if isOwner(userId);
@@ -80,13 +87,15 @@ service cloud.firestore {
         allow read: if signedIn();
         allow write: if isOwner(userId);
       }
-
-      match /calls/{callId} {
-        allow read: if signedIn() && (userId == request.auth.uid || areFriends(request.auth.uid, userId));
-        allow create, update, delete: if signedIn() && (userId == request.auth.uid || areFriends(request.auth.uid, userId));
-      }
     }
 
+    // ------------------------------------------------------------------
+    // Per-user settings and location.
+    //
+    // Location documents are owner-write, signed-in-read: the radar needs to
+    // read every nearby neighbour's last known position to place them, which
+    // is the whole point of the app, and is why this is not owner-read.
+    // ------------------------------------------------------------------
     match /settings/{userId} {
       allow read, write: if isOwner(userId);
     }
@@ -110,154 +119,15 @@ service cloud.firestore {
       allow create, update, delete: if isOwner(userId);
     }
 
-    match /friend_requests/{requestId} {
-      allow read: if signedIn()
-        && (
-          resource.data.get('senderId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-        );
-
-      allow create: if signedIn()
-        && request.resource.data.get('senderId', '') == request.auth.uid
-        && request.resource.data.get('receiverId', '') is string
-        && request.resource.data.get('receiverId', '') != request.auth.uid
-        && request.resource.data.get('status', '') == 'pending';
-
-      allow delete: if signedIn()
-        && (
-          resource.data.get('senderId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-        );
-
-      allow update: if signedIn()
-        && (
-          resource.data.get('senderId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-        )
-        && request.resource.data.get('senderId', '') == resource.data.get('senderId', '')
-        && request.resource.data.get('receiverId', '') == resource.data.get('receiverId', '');
-    }
-
-    // Legacy request collections are intentionally blocked; the app uses friend_requests.
-    match /friend_requests_incoming/{requestId} {
-      allow read, write: if false;
-    }
-
-    match /friend_requests_outgoing/{requestId} {
-      allow read, write: if false;
-    }
-
-    match /friendRequests/{requestId} {
-      allow read, write: if false;
-    }
-
-    // ---------------------------------------------------------------
-    // FRIENDSHIPS - single source of truth for the whole relationship.
+    // ------------------------------------------------------------------
+    // Content the whole signed-in user base shares: the community feed, the
+    // meetup board and the safe-place directory.
     //
-    //   doc id  : the two uids sorted + joined  (both sides derive the same id)
-    //   members : [uidLow, uidHigh]  (sorted)
-    //   requestedBy : who sent the request
-    //   status  : 'pending' | 'accepted'
-    //
-    // Because the id is deterministic, sending a request twice is the SAME
-    // document - duplicates are structurally impossible. Because there is only
-    // one doc, the two devices can never hold conflicting views of the
-    // friendship, which is what produced "one account accepts, the other
-    // doesn't" and the permanent "message failed to send".
-    // ---------------------------------------------------------------
-    match /friendships/{fid} {
-      allow read: if signedIn() && request.auth.uid in resource.data.get('members', []);
-
-      allow create: if signedIn()
-        && request.resource.data.members is list
-        && request.resource.data.members.size() == 2
-        && request.auth.uid in request.resource.data.members
-        // members must be sorted, and the doc id must match them exactly, so a
-        // pair can only ever occupy one document.
-        && request.resource.data.members[0] < request.resource.data.members[1]
-        && fid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
-        && request.resource.data.get('requestedBy', '') == request.auth.uid
-        && request.resource.data.get('status', '') == 'pending';
-
-      // Only the RECIPIENT may accept, and only from pending. Nobody can
-      // silently flip a friendship back, and the pair/requester are immutable.
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.get('members', [])
-        && request.resource.data.members == resource.data.members
-        && request.resource.data.get('requestedBy', '') == resource.data.get('requestedBy', '')
-        && resource.data.get('status', '') == 'pending'
-        && request.resource.data.get('status', '') == 'accepted'
-        && resource.data.get('requestedBy', '') != request.auth.uid;
-
-      // Either party may delete: decline, cancel, or unfriend - all the same op.
-      allow delete: if signedIn() && request.auth.uid in resource.data.get('members', []);
-    }
-
-    match /direct_messages/{messageId} {
-      // DM docs written by saveOrUpdateMessageInFirestore() carry senderId,
-      // receiverId AND a sorted `participants` array. The client subscribes with
-      //   where('participants', 'array-contains', uid)
-      // and Firestore only allows a query whose constraint is *provably* within
-      // the read rule - a rule phrased purely in terms of senderId/receiverId can
-      // never satisfy an array-contains query on `participants`, so the entire
-      // message listener failed with permission-denied and no chat ever loaded.
-      // Allowing the participants form here is what makes that query legal.
-      allow read: if signedIn()
-        && (
-          request.auth.uid in resource.data.get('participants', [])
-          || resource.data.get('senderId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-        );
-
-      allow create: if signedIn()
-        && request.resource.data.get('senderId', '') == request.auth.uid
-        && request.resource.data.get('receiverId', '') is string
-        && request.resource.data.get('receiverId', '') != request.auth.uid
-        && request.auth.uid in request.resource.data.get('participants', [])
-        && request.resource.data.get('receiverId', '') in request.resource.data.get('participants', [])
-        && areFriends(request.auth.uid, request.resource.data.get('receiverId', ''));
-
-      allow update, delete: if signedIn()
-        && (
-          request.auth.uid in resource.data.get('participants', [])
-          || resource.data.get('senderId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-        );
-    }
-
-    match /notifications/{notificationId} {
-      allow read: if signedIn() && resource.data.get('userId', '') == request.auth.uid;
-      allow create: if signedIn()
-        && request.resource.data.get('senderId', '') == request.auth.uid
-        && request.resource.data.get('userId', '') is string;
-      allow update, delete: if signedIn() && resource.data.get('userId', '') == request.auth.uid;
-    }
-
-    match /groups/{groupId} {
-      allow read, write: if signedIn();
-      match /messages/{messageId} {
-        allow read, write: if signedIn();
-      }
-    }
-
-    match /Conversations/{conversationId} {
-      allow read, write: if signedIn();
-    }
-
-    // Existing app-level collection. Keep it available so current working features do not break.
-    match /messages/{messageId} {
-      allow read, write: if signedIn();
-    }
-
+    // These are deliberately open to any signed-in user. They are public
+    // content by design. If this app ever grows moderation, this is the block
+    // to tighten first — a signed-in user can currently write here freely.
+    // ------------------------------------------------------------------
     match /posts/{postId} {
-      allow read, write: if signedIn();
-    }
-
-    match /meetups/{meetupId} {
-      allow read, write: if signedIn();
-    }
-
-    match /meetupRatings/{ratingId} {
       allow read, write: if signedIn();
     }
 
@@ -273,34 +143,16 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
-    match /calls/{callId} {
-      allow read: if signedIn()
-        && (
-          resource.data.get('callerId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-          || resource.data.get('callerUID', '') == request.auth.uid
-          || resource.data.get('receiverUID', '') == request.auth.uid
-        );
-
-      allow create: if signedIn()
-        && (
-          request.resource.data.get('callerId', '') == request.auth.uid
-          || request.resource.data.get('callerUID', '') == request.auth.uid
-        )
-        && (
-          areFriends(request.auth.uid, request.resource.data.get('receiverId', ''))
-          || areFriends(request.auth.uid, request.resource.data.get('receiverUID', ''))
-        );
-
-      allow update, delete: if signedIn()
-        && (
-          resource.data.get('callerId', '') == request.auth.uid
-          || resource.data.get('receiverId', '') == request.auth.uid
-          || resource.data.get('callerUID', '') == request.auth.uid
-          || resource.data.get('receiverUID', '') == request.auth.uid
-        );
-    }
-
+    // ------------------------------------------------------------------
+    // Everything else is denied, including any collection added to the code
+    // later. A new feature that talks to Firestore directly will fail loudly
+    // rather than silently being world-writable.
+    //
+    // Note: the boot-time probe at `getDocFromServer(doc(db, 'test',
+    // 'connection'))` in useNearbyController lands here and is denied. That is
+    // harmless — the call is wrapped in a try/catch that only logs the
+    // "client is offline" case, so a permission-denied is swallowed.
+    // ------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }

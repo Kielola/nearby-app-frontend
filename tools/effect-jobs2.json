@@ -1,0 +1,98 @@
+[
+  {
+    "contains": "localStorage.setItem('appearanceMode', appearanceMode);",
+    "count": 1,
+    "out": "src/features/settings/hooks/useAppearanceModeEffect.ts",
+    "hook": "useAppearanceModeEffect",
+    "title": "Applying the light/dark preference",
+    "doc": "Writes the choice to localStorage and follows the operating system when the user has picked 'system', including when the OS setting changes while the app is open."
+  },
+  {
+    "contains": "if (!myMeetupsData) return;",
+    "count": 1,
+    "out": "src/features/meetups/hooks/useMeetupsSync.ts",
+    "hook": "useMeetupsSync",
+    "title": "Meetups the user has scheduled",
+    "doc": "Projects the polled meetups into the shape the meetups screen renders."
+  },
+  {
+    "contains": "const typingTarget =",
+    "count": 1,
+    "out": "src/features/chat/hooks/useTypingIndicatorPublisher.ts",
+    "hook": "useTypingIndicatorPublisher",
+    "title": "Telling the other side that you are typing",
+    "doc": "Sends typing state over the chat socket rather than writing a presence document on every keystroke \u2014 the Firestore writes this replaced were the single most expensive thing the app did while a chat was open."
+  },
+  {
+    "contains": "if (!storyViewer) {",
+    "count": 1,
+    "out": "src/features/stories/hooks/useStoryViewerPlayback.ts",
+    "hook": "useStoryViewerPlayback",
+    "title": "Opening and closing the story viewer",
+    "doc": "Builds the playlist when a story is opened and clears all playback state when it closes, so the next story opened does not start mid-way through the previous one."
+  },
+  {
+    "contains": "if (playingStorySnaps.length === 0 || isStoryPaused) return;",
+    "count": 1,
+    "out": "src/features/stories/hooks/useStoryAutoAdvance.ts",
+    "hook": "useStoryAutoAdvance",
+    "title": "Advancing stories on a timer",
+    "doc": "Moves to the next snap when the current one has been on screen for its full duration, and stops cleanly on pause and unmount."
+  },
+  {
+    "contains": "let watchDogInterval: any = null;",
+    "count": 1,
+    "out": "src/features/calls/hooks/useCallSessionTimers.ts",
+    "hook": "useCallSessionTimers",
+    "title": "Call timers and the ghost-call watchdog",
+    "doc": "Drives the call duration counter and tears down a call that the network abandoned \u2014 when the other side closes the tab mid-call, no 'ended' event ever arrives, and without this the caller sits on a dead screen indefinitely."
+  },
+  {
+    "contains": "const canvas = document.createElement('canvas');",
+    "count": 1,
+    "out": "src/features/camera/hooks/useCapturePhoto.ts",
+    "hook": "useCapturePhoto",
+    "title": "Capturing a framed photo",
+    "doc": "Draws the current video frame into a canvas, applies the selected filter and the doodle layer, and hands back a data URL \u2014 the one place the camera, the filter and the drawing layer meet."
+  },
+  {
+    "contains": "const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {",
+    "count": 3,
+    "out": "src/features/camera/hooks/useDoodleCanvas.ts",
+    "hook": "useDoodleCanvas",
+    "title": "Drawing on a captured photo",
+    "doc": "Pointer handling for the doodle layer: start a stroke, extend it, finish it. Kept out of the controller because it is the only part of the photo flow that cares about cursor coordinates and brush colour."
+  },
+  {
+    "contains": "const startRecordingVoice = async () => {",
+    "count": 1,
+    "out": "src/features/chat/hooks/useStartVoiceRecording.ts",
+    "hook": "useStartVoiceRecording",
+    "title": "Starting a voice note",
+    "doc": "Requests the microphone at the moment the user holds the button \u2014 a gesture-driven call, which is the only kind iOS Safari will honour for this permission."
+  },
+  {
+    "contains": "const stopAndSendVoice = () => {",
+    "count": 1,
+    "out": "src/features/chat/hooks/useStopAndSendVoice.ts",
+    "hook": "useStopAndSendVoice",
+    "title": "Sending a voice note",
+    "doc": "Stops the recorder, assembles the clip and uploads it, with the timer torn down first so a failed upload cannot leave an interval running."
+  },
+  {
+    "contains": "const cancelRecordingVoice = () => {",
+    "count": 1,
+    "out": "src/features/chat/hooks/useCancelVoiceRecording.ts",
+    "hook": "useCancelVoiceRecording",
+    "title": "Discarding a voice note",
+    "doc": "Releases the microphone and resets the timer without uploading anything."
+  },
+  {
+    "contains": "const handleProcessPayment = () => {",
+    "count": 1,
+    "out": "src/features/premium/hooks/useProcessPayment.ts",
+    "hook": "useProcessPayment",
+    "title": "Completing a premium purchase",
+    "doc": "Starts the subscription checkout and reflects the result in local state."
+  }
+]
