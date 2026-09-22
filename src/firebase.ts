@@ -906,7 +906,22 @@ export async function uploadToStorage(data: File | Blob | string, path: string):
     }
     return result.secure_url as string;
   } catch (err) {
-    console.warn("Cloudinary upload failed, falling back to local/base64 representation:", err);
+      // This fallback keeps the image visible on the device that chose it, but it is
+      // NOT a successful upload — the value returned is a multi-hundred-kB base64
+      // string, and if it is then persisted through the API it has to fit in the
+      // request body. Say so plainly, because the alternative is a photo that
+      // appears to save and is then missing everywhere else.
+      //
+      // The usual cause is a Cloudinary upload preset that is not set to
+      // "Unsigned" (Cloudinary console -> Settings -> Upload -> Upload presets).
+      console.error(
+        "[uploads] Cloudinary upload failed — falling back to a base64 data URL. "
+          + "The image will show on this device only, and saving it may fail if it "
+          + "exceeds the API's request size limit. Check that VITE_CLOUDINARY_CLOUD_NAME "
+          + "and VITE_CLOUDINARY_UPLOAD_PRESET are correct and that the preset's "
+          + "signing mode is 'Unsigned'. Original error:",
+        err,
+      );
     
     // Attempt local compression before base64 fallback
     let fallbackBlob: Blob | null = null;

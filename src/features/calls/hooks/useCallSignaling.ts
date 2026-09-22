@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCallSocket } from '../../../lib/socket/callSocket';
+import { getCallSocket, waitForCallSocket } from '../../../lib/socket/callSocket';
 import { CallState, DirectMessage, Neighbor } from '../../../types';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ApiUser } from '../../../lib/api/types';
@@ -144,7 +144,11 @@ export function useCallSignaling({
     let cancelled = false;
     let socket: Awaited<ReturnType<typeof getCallSocket>> | null = null;
 
-    getCallSocket().then((s) => {
+    getCallSocket().catch((err) => {
+      console.error('[calls] could not open the call socket:', err);
+      return null;
+    }).then((s) => {
+      if (!s) return;
       if (cancelled) return;
       socket = s;
 
@@ -163,6 +167,26 @@ export function useCallSignaling({
             callId: `call-${Date.now()}`,
           };
         });
+      });
+
+      // Registered so a socket that never connects is visible. Without this the
+      // call socket could fail to authenticate or reach the backend and the
+      // caller would see nothing at all — the invite is buffered by Socket.IO
+      // and simply never arrives, which looks identical to the other side
+      // ignoring the call.
+      // The server emits this immediately before dropping a socket it could not
+      // authenticate. Without it the user simply becomes unreachable for calls
+      // with no explanation at all.
+      s.on('auth:error', (data: { reason?: string }) => {
+        console.error('[calls] server rejected the call socket:', data?.reason);
+        setAudioFeedback("Calls are unavailable right now — please sign out and back in.");
+        setTimeout(() => setAudioFeedback(""), 6000);
+      });
+
+      s.on('connect_error', (err: any) => {
+        console.error('[calls] socket connection failed:', err?.message || err);
+        setAudioFeedback("Can't reach the calling service. Check your connection and try again.");
+        setTimeout(() => setAudioFeedback(""), 4000);
       });
 
       s.on('call:unavailable', () => {
@@ -256,6 +280,8 @@ export function useCallSignaling({
 
     return () => {
       cancelled = true;
+      socket?.off('auth:error');
+      socket?.off('connect_error');
       socket?.off('call:incoming');
       socket?.off('call:unavailable');
       socket?.off('call:answered');
@@ -329,6 +355,14 @@ export function useCallSignaling({
     }
 
     try {
+      // navigator.mediaDevices is undefined on any non-secure origin, so the
+      // failure below would be a TypeError with no useful name. Say what is
+      // actually wrong instead. localhost counts as secure; a plain http://
+      // address on your LAN does not.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('INSECURE_CONTEXT');
+      }
+
       const constraints = {
         audio: true,
         video: type === 'video' ? { facingMode: cameraFacingMode } : false
@@ -449,7 +483,10 @@ export function useCallSignaling({
       await pc.setLocalDescription(offer);
 
       try {
-        const socket = await getCallSocket();
+        // Wait for a live connection rather than emitting into a dead one.
+        // Socket.IO would buffer the invite and flush it if the socket ever
+        // connected, so a failure here used to be completely silent.
+        const socket = await waitForCallSocket();
         socket.emit('call:invite', {
           calleeId: neighborId,
           offer: { sdp: offer.sdp, type: offer.type },
@@ -457,12 +494,39 @@ export function useCallSignaling({
         });
       } catch (inviteErr) {
         console.error("Failed to send call invite:", inviteErr);
+        setAudioFeedback("Can't reach the calling service. Check your connection and try again.");
+        setTimeout(() => setAudioFeedback(""), 4000);
         endCall('missed');
       }
-    } catch (gUerr) {
-      console.error("Camera/Mic WebRTC setup failed:", gUerr);
-      setAudioFeedback("Local caller permissions error. Enable Camera/Mic!");
-      setTimeout(() => setAudioFeedback(""), 4000);
+    } catch (callErr: any) {
+      // This catch used to say "Local caller permissions error. Enable
+      // Camera/Mic!" for EVERY failure inside the try block — and that block
+      // covers far more than getUserMedia: it also builds the RTCPeerConnection,
+      // creates the offer and sets the local description. A peer-connection or
+      // ICE-configuration failure therefore told the user to enable a camera
+      // that was already working, which sends them off fixing the wrong thing.
+      //
+      // Each cause now names itself.
+      console.error("Call setup failed:", callErr);
+      const name = callErr?.name || '';
+      let message: string;
+
+      if (callErr?.message === 'INSECURE_CONTEXT') {
+        message = "Calls need a secure (https) connection.";
+      } else if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+        message = "Camera/Mic is blocked. Allow it in your browser's site settings, then call again.";
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        message = "No microphone or camera found on this device.";
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        message = "Camera/Mic is in use by another app. Close it and call again.";
+      } else if (name === 'OverconstrainedError') {
+        message = "This device's camera does not support the requested mode.";
+      } else {
+        message = `Call could not start (${name || 'unknown error'}). Please try again.`;
+      }
+
+      setAudioFeedback(message);
+      setTimeout(() => setAudioFeedback(""), 5000);
       endCall('missed');
     }
   };
@@ -667,13 +731,18 @@ export function useCallSignaling({
         await pc.setLocalDescription(answer);
 
         try {
-          const socket = await getCallSocket();
+          // Same reasoning as the invite: an answer emitted into a dead socket
+          // is buffered and silently lost, which leaves the caller ringing while
+          // the callee believes they have answered.
+          const socket = await waitForCallSocket();
           socket.emit('call:answer', {
             callerId: callState.neighborId,
             answer: { sdp: answer.sdp, type: answer.type },
           });
         } catch (answerErr) {
           console.error("Failed to send call answer:", answerErr);
+          setAudioFeedback("Couldn't connect the call — the calling service is unreachable.");
+          setTimeout(() => setAudioFeedback(""), 4000);
         }
 
         setCallState(prev => ({
