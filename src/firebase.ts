@@ -26,12 +26,22 @@ const envConfig = {
 
 // Firebase config comes from the environment ONLY.
 //
-// There used to be a fallback here to a committed firebase-applet-config.json
-// pointing at the AI Studio project ("nearby-socials"). That meant a build
+// There used to be a fallback here to a committed config file pointing at the
+// AI Studio project this app was originally scaffolded from. That meant a build
 // with a single missing env var would silently boot against somebody else's
-// Firebase project — and since the backend verifies tokens against the
-// project named in FIREBASE_PROJECT_ID, every API request would 401 with no
-// obvious cause. Failing loudly at startup is far cheaper to debug.
+// Firebase project — and since the backend verifies tokens against the project
+// named in FIREBASE_PROJECT_ID, every API request would 401 with no obvious
+// cause. Failing loudly at startup is far cheaper to debug.
+//
+// NOTE: that project's id is deliberately not written here. Netlify's secrets
+// scanner matches env var VALUES against the raw text of the repo, comments
+// included, and a comment naming the id is indistinguishable from a leak as
+// far as it is concerned — it failed the deploy once for exactly that reason.
+//
+// For the record, none of the values below are secrets. Firebase's web config
+// is public by design: it ships inside the client bundle and is visible to
+// anyone who opens devtools. The credentials that actually need protecting are
+// the backend's FIREBASE_PRIVATE_KEY and DATABASE_URL, which never appear here.
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
 
 const firebaseConfig = {
