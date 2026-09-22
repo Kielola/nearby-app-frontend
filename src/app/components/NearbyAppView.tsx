@@ -4,6 +4,7 @@ import MainTabContent from './MainTabContent';
 import CameraOverlay from './CameraOverlay';
 import ChatRoomOverlay from './ChatRoomOverlay';
 import CallScreenOverlay from './CallScreenOverlay';
+import CallComingSoonModal from '../../features/calls/components/CallComingSoonModal';
 import AppModals from './AppModals';
 import BottomNav from './BottomNav';
 import SecondaryModals from './SecondaryModals';
@@ -18,6 +19,9 @@ export default function NearbyAppView() {
         <CameraOverlay />
         <ChatRoomOverlay />
         <CallScreenOverlay />
+        {/* Rendered once, here, so every call button in the app can raise it
+            without prop-drilling through the controller. */}
+        <CallComingSoonModal />
         <AppModals />
         <BottomNav />
         <SecondaryModals />

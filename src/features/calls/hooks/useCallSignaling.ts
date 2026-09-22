@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCallSocket, waitForCallSocket } from '../../../lib/socket/callSocket';
+import { CALLS_ENABLED, showCallComingSoon } from '../callAvailability';
 import { CallState, DirectMessage, Neighbor } from '../../../types';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ApiUser } from '../../../lib/api/types';
@@ -141,6 +142,16 @@ export function useCallSignaling({
 
   useEffect(() => {
     if (!currentUser || !appUser) return;
+
+    // Calls are off for launch (callAvailability.ts), so there is nothing to
+    // listen for. Skipping the socket entirely means: no persistent connection
+    // per user on a free-tier host, less mobile data and battery on the devices
+    // this app is actually used on, and — because the server then has no socket
+    // registered for this user — anyone running an older build who tries to call
+    // gets an immediate, accurate "unavailable" instead of ringing a phone that
+    // could never have answered.
+    if (!CALLS_ENABLED) return;
+
     let cancelled = false;
     let socket: Awaited<ReturnType<typeof getCallSocket>> | null = null;
 
@@ -153,6 +164,16 @@ export function useCallSignaling({
       socket = s;
 
       s.on('call:incoming', (data: { callerId: string; offer: { sdp: string; type: string }; type: 'audio' | 'video' }) => {
+        // Calls are off (callAvailability.ts). Someone on a build older than
+        // this one can still send an invite, so answering it is refused here
+        // rather than letting the ring screen appear for a call that can never
+        // connect. We tell the caller it ended so they are not left staring at a
+        // ringing screen forever.
+        if (!CALLS_ENABLED) {
+          s.emit('call:end', { targetUserId: data.callerId });
+          return;
+        }
+
         incomingOfferRef.current = data.offer;
         setCallState(prev => {
           if (prev.active) return prev;
@@ -291,6 +312,15 @@ export function useCallSignaling({
   }, [currentUser, appUser]);
 
   const startCall = async (neighborId: string, type: 'audio' | 'video') => {
+    // Calling is switched off for launch — see callAvailability.ts. This is the
+    // single choke point for every outgoing call button in the app, and it
+    // returns before anything is requested: no camera/mic permission prompt, no
+    // socket emit, no ringing screen. Flip CALLS_ENABLED to re-enable.
+    if (!CALLS_ENABLED) {
+      showCallComingSoon(type);
+      return;
+    }
+
     if (callState.active) {
       console.warn("Call already active, ignoring startCall request.");
       setAudioFeedback("⚠️ An active call session is already running!");
@@ -532,6 +562,13 @@ export function useCallSignaling({
   };
 
   const receiveCallSimulation = async (neighborId: string, type: 'audio' | 'video' = 'audio') => {
+    // Same gate as startCall — this is the demo/simulated invite path, and it
+    // must not be able to open a call screen while calling is switched off.
+    if (!CALLS_ENABLED) {
+      showCallComingSoon(type);
+      return;
+    }
+
     if (callState.active) return;
     setCallState({
       active: true,
@@ -544,6 +581,13 @@ export function useCallSignaling({
   };
 
   const answerIncomingCall = async () => {
+    // Defensive twin of the call:incoming gate above: even if some path set a
+    // ringing state, answering must not open a call or request the camera.
+    if (!CALLS_ENABLED) {
+      showCallComingSoon(callState.type);
+      return;
+    }
+
     triggerBeep(680, 0.2, 'sine');
 
     localCandidatesAddedRef.current = 0;
