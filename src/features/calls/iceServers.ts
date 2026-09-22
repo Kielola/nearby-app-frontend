@@ -75,7 +75,32 @@ function env(key: string): string {
     const override = (globalThis as any).__NEARBY_BUILD_ENV__;
     if (override && typeof override[key] === 'string') return override[key].trim();
 
-    const value = (import.meta as any)?.env?.[key];
+    // Every key is listed explicitly, and that is the whole point.
+    //
+    // Vite substitutes environment variables by matching the literal expression
+    // `import.meta.env.VITE_X` in the source. A computed lookup such as
+    // `import.meta.env[key]` — or anything that puts an operator between
+    // `import.meta` and `.env`, like `(import.meta)?.env?.[key]` — is NOT matched.
+    // It survived into the production bundle as a live `import.meta.env`
+    // reference, which is `undefined` in a browser, so every TURN variable read
+    // as an empty string.
+    //
+    // The consequence was invisible and total: getConfiguredTurn() always
+    // returned null, getIceServers() always fell back to the shared public Open
+    // Relay, and setting VITE_TURN_URLS in the host's dashboard did nothing at
+    // all — no error, no warning, just calls that never connected. Verified by
+    // building with the variables set and grepping the bundle: the relay
+    // hostname is absent before this change and present after it.
+    //
+    // If you add a variable here, add it to this object. Do not reintroduce a
+    // dynamic lookup.
+    const buildEnv: Record<string, string | undefined> = {
+      VITE_TURN_URLS: import.meta.env.VITE_TURN_URLS,
+      VITE_TURN_USERNAME: import.meta.env.VITE_TURN_USERNAME,
+      VITE_TURN_CREDENTIAL: import.meta.env.VITE_TURN_CREDENTIAL,
+    };
+
+    const value = buildEnv[key];
     return typeof value === 'string' ? value.trim() : '';
   } catch {
     return '';
