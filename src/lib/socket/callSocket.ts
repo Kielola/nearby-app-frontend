@@ -9,20 +9,31 @@ let callSocket: Socket | null = null;
 // namespace on the backend (/calls vs the default namespace) — mirrors
 // CallGateway's @WebSocketGateway({ namespace: 'calls' }) exactly.
 export async function getCallSocket(): Promise<Socket> {
-  if (callSocket?.connected) return callSocket;
-
-  // A socket that exists but is not connected was previously just abandoned: the
-  // next call built a second connection and overwrote the reference, so the old
-  // one was never closed and both could sit half-open. Close it first.
+  // Reuse the existing socket. ALWAYS.
   //
-  // Note this does NOT wait for the new connection. Callers that only LISTEN for
-  // incoming calls must register their handlers immediately — waiting here would
-  // mean a slow backend also stopped calls from being received, which is a worse
-  // failure than the one being fixed.
+  // An earlier version of this function tore the socket down whenever
+  // `connected` was false, on the theory that a half-open socket should be
+  // replaced. That produced a reconnect storm in production: during a call the
+  // ICE-candidate handler asks for the socket many times per second, and each
+  // request arrived while the previous attempt was still handshaking — so it
+  // disconnected the in-flight connection and started another. The server saw
+  // 13 fresh connections in 13 seconds from one user, and the socket never
+  // stayed up long enough to receive anything.
+  //
+  // `active` is true while Socket.IO is connected OR still trying to reconnect.
+  // Only when it is false has Socket.IO genuinely given up (the server actively
+  // disconnected us), and the correct response is to ask the SAME instance to
+  // reconnect — not to build a new one, which would drop the event handlers
+  // every caller registered on the old one.
+  //
+  // Note this does NOT wait for the connection. Callers that only LISTEN for
+  // incoming calls must register their handlers immediately; waiting here would
+  // mean a slow backend also stopped calls from being received.
   if (callSocket) {
-    callSocket.removeAllListeners();
-    callSocket.disconnect();
-    callSocket = null;
+    if (!callSocket.connected && !callSocket.active) {
+      callSocket.connect();
+    }
+    return callSocket;
   }
 
   const user = auth.currentUser;
