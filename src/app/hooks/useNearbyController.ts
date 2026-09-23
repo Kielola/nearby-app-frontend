@@ -24,6 +24,7 @@ import { useChatSearchMatches } from '../../features/chat/hooks/useChatSearchMat
 import { useOnlineStatus } from '../../features/system/hooks/useOnlineStatus';
 import { useFirestoreHealthCheck } from '../../features/system/hooks/useFirestoreHealthCheck';
 import { useNotifications } from '../../features/notifications/hooks/useNotifications';
+import { sendPasswordReset } from '../../features/authentication/services/passwordReset';
 import { useAuthRedirect } from '../../features/authentication/hooks/useAuthRedirect';
 import { usePresenceHeartbeat } from '../../features/presence/hooks/usePresenceHeartbeat';
 import { useChatScrollAnchoring } from '../../features/chat/hooks/useChatScrollAnchoring';
@@ -1008,7 +1009,9 @@ await usersApi.updateMe(payload);
     setAuthLoading(true);
     setAuthError("");
     try {
-      await sendPasswordResetEmail(auth, emailOrPhone.trim());
+      // See features/authentication/services/passwordReset.ts — routes the user
+      // back to our own domain when VITE_AUTH_CONTINUE_URL is configured.
+      await sendPasswordReset(emailOrPhone.trim());
       setAuthSuccess("We've sent a secure reset link to your email.");
       setAuthScreenState('login');
     } catch (err: any) {
@@ -1140,10 +1143,21 @@ await usersApi.updateMe(payload);
   // Socket.IO connection — both participants receive the identical event
   // from the identical source of truth, which is what actually fixes
   // one-sided delivery (no per-client listener race to fall out of sync).
+  // `markMessageFailed` is declared further down this file — `useMessages` is
+  // called AFTER `useChatSync`, and reordering ~200 hooks to move it up would be
+  // a far bigger risk than this one indirection. The socket event that needs it
+  // fires long after mount, so the ref is always populated by then.
+  const markMessageFailedRef = useRef<((threadId: string, msgId: string) => void) | null>(null);
+
   const { sendChatMessage: sendChatMessageViaSocket, unreadCounts: chatUnreadCounts, totalUnread: totalUnreadMessages } = useChatSync({
     myUserId: appUser?.id ?? null,
     enabled: Boolean(currentUser) && Boolean(appUser),
     activeNeighborId: selectedNeighborState?.id ?? null,
+    // Server refused the message (not a participant, invalid payload, storage
+    // failure). Mark the optimistic bubble failed so it shows "Not sent"
+    // instead of sitting on a single tick that claims it was delivered.
+    onMessageFailed: (neighborId: string, clientId: string) =>
+      markMessageFailedRef.current?.(neighborId, clientId),
     onMessagesForThread: (neighborId, serverList) => {
       _setChatMessages(prev => {
         const combined = { ...prev };
@@ -1614,6 +1628,12 @@ await usersApi.updateMe(payload);
     saveOrUpdateMessageInFirestore,
     scrollToLastMessage,
   } = useMessagesDomain;
+
+  // Now that it exists, hand it to the chat socket layer (see the ref declared
+  // beside useChatSync above).
+  useEffect(() => {
+    markMessageFailedRef.current = markMessageFailed;
+  }, [markMessageFailed]);
 
   useChatScrollAnchoring({
     chatMessages,

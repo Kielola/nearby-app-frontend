@@ -129,11 +129,17 @@ import { useNearbyRuntime } from '../context/NearbyRuntimeContext';
 export default function BottomNav() {
   const {
     activeTab,
+    // Total unread across every conversation — the badge on the Chat tab.
+    totalUnreadMessages,
     setActiveTab,
     setSelectedNeighbor,
     appTheme,
     triggerBeep,
   } = useNearbyRuntime();
+
+  // `totalUnreadMessages` is typed `unknown` on the runtime object, like most of
+  // its payload. Coerce once here rather than casting at each use.
+  const unreadTotal = Number(totalUnreadMessages) || 0;
 
   return (
     <>
@@ -198,6 +204,14 @@ export default function BottomNav() {
             >
               <MessageCircle className="w-[20px] h-[20px]" style={{ strokeWidth: 2.2 }} />
             </motion.div>
+            {unreadTotal > 0 && (
+              <span
+                className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-[#EF4444] text-white text-[9px] font-black flex items-center justify-center shadow-soft-sm pointer-events-none"
+                aria-label={`${unreadTotal} unread messages`}
+              >
+                {unreadTotal > 99 ? '99+' : unreadTotal}
+              </span>
+            )}
           </div>
           <span className={`text-[10px] font-bold font-sans mt-0.5 transition-colors duration-180 ${
             activeTab === 'chat' ? 'text-[#0F8A5F]' : 'text-[#8E8E93]'

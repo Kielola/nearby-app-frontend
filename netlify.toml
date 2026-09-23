@@ -14,6 +14,44 @@
   NODE_VERSION = "22"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# FIREBASE AUTH HANDLER PROXY — needed only once you switch the auth domain
+#
+# Firebase serves its sign-in helper (and the password-reset action page) from
+# https://<project>.firebaseapp.com/__/auth/*. Left alone, that is why Google
+# sign-in shows "to continue to nearby-socials.firebaseapp.com" and why password
+# reset links point at firebaseapp.com.
+#
+# The way to own that domain without moving your hosting to Firebase is to proxy
+# these paths to Firebase transparently. SETTING VITE_FIREBASE_AUTH_DOMAIN to
+# nearby.fashfos.com then makes the popup, the consent screen and the reset link
+# all show your domain.
+#
+# status = 200 is a PROXY, not a redirect — it must be transparent, exactly as
+# Firebase's own guidance specifies ("this cannot be done via a 302 Redirect").
+#
+# This is additive and safe to deploy now: it only affects paths beginning
+# /__/auth/, which today would fall through to the SPA rewrite below and return
+# index.html (i.e. be broken anyway). Nothing else changes until you switch the
+# auth domain variable.
+#
+# It MUST come before the SPA catch-all below, since rules apply in order.
+#
+# Before switching, do the two console steps in the handover notes:
+#   1. Firebase → Authentication → Settings → Authorized domains: add nearby.fashfos.com
+#   2. Google Cloud → APIs & Services → Credentials → the "Web client (auto created
+#      by Google Service)" → Authorized redirect URIs: add
+#      https://nearby.fashfos.com/__/auth/handler
+#
+# If sign-in ever breaks after the switch, change VITE_FIREBASE_AUTH_DOMAIN back
+# to nearby-socials.firebaseapp.com and redeploy — instant rollback, no code change.
+# ─────────────────────────────────────────────────────────────────────────────
+[[redirects]]
+  from = "/__/auth/*"
+  to = "https://nearby-socials.firebaseapp.com/__/auth/:splat"
+  status = 200
+  force = true
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SPA FALLBACK — REQUIRED
 #
 # The app is a single-page app: React Router handles /chat, /profile and so on

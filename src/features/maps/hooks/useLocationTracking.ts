@@ -74,6 +74,28 @@ export function useLocationTracking({
   setLocationStatus,
 }: UseLocationTrackingDeps): void {
     useEffect(() => {
+      // DO NOT track location while signed out. This is not tidiness — it is the
+      // cause of the laggy login and registration fields.
+      //
+      // `currentUser` was already the only dependency, and the comment at the
+      // bottom of this hook said "intentionally run once per signed-in user", but
+      // nothing actually checked that a user was signed in. So on the LOGIN
+      // SCREEN the hook started a high-accuracy `watchPosition` with
+      // `maximumAge: 0` — a fresh GPS fix on every callback, several times a
+      // second on a real phone.
+      //
+      // Each fix calls setUserCoords / setGpsSynced / setLocationStatus, which
+      // re-renders the controller, which recreates the context value object,
+      // which re-renders `AuthGate` — the component holding the email and
+      // password inputs. Every keystroke had to share the main thread with a GPS
+      // callback doing a reverse-geocode and a network write, for a user who had
+      // not even signed in yet. That is the stutter.
+      //
+      // There is also nothing to publish: the write needs an authenticated user.
+      // The effect re-runs when `currentUser` becomes non-null, so tracking
+      // starts the moment sign-in completes.
+      if (!currentUser) return;
+
       let watchId: number | null = null;
       let fallbackWatchId: number | null = null;
     
@@ -193,6 +215,15 @@ export function useLocationTracking({
     // pushed through the same `updatePresetWithCoordinates` pipeline as the watch,
     // so `selectedPreset` becomes a real place name rather than a demo one.
     useEffect(() => {
+      // Same guard as the watch above, and it matters for a second reason:
+      // this effect runs the permission ladder immediately. Without the guard it
+      // fired on the LOGIN SCREEN — so a brand-new user who had not yet created
+      // an account got a browser "Allow Nearby to use your location?" prompt
+      // before they had any idea what the app was. Denying it there also poisons
+      // the permission for the whole session in Chrome, so the app could never
+      // get a fix afterwards even once signed in.
+      if (!currentUser) return;
+
       let cancelled = false;
 
       (async () => {

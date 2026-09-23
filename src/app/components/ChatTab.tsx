@@ -152,6 +152,10 @@ export default function ChatTab() {
     archivedNeighborIds,
     showArchivedOnly,
     setShowArchivedOnly,
+    // Live unread counts, keyed by neighbour id. Sourced from the backend's
+    // unread_count (a read watermark per conversation) and incremented live by
+    // the chat socket; zeroed when the thread is opened.
+    chatUnreadCounts,
     triggerBeep,
     startCall,
     handleAcceptFriendRequest,
@@ -448,7 +452,11 @@ export default function ChatTab() {
                     const renderCard = (nb: Neighbor) => {
                       const msgs = chatMessages[nb.id] || [];
                       const lastMsg = msgs[msgs.length - 1];
-                      const isUnread = nb.id === 'nb-1' || nb.id === 'nb-3' || msgs.some(m => m.isUnread === true);
+                      // The numeric badge comes from the server's unread
+                      // watermark; the two hardcoded demo ids stay so the
+                      // simulated companions still look unread.
+                      const unreadCount = chatUnreadCounts?.[nb.id] ?? 0;
+                      const isUnread = unreadCount > 0 || nb.id === 'nb-1' || nb.id === 'nb-3' || msgs.some(m => m.isUnread === true);
                       
                       let subText = "Tap to chat and connect";
                       let lastMsgIcon = null;
@@ -704,11 +712,18 @@ export default function ChatTab() {
                                     <Pin className="w-3.5 h-3.5 text-amber-500 rotate-45 fill-amber-500/20" />
                                   )}
                                   
-                                  {isUnread && (
+                                  {/* Real unread count. Replaces the hardcoded "1" that
+                                      was shown for any thread flagged unread — it said the
+                                      same thing whether one message or twenty had arrived. */}
+                                  {unreadCount > 0 ? (
+                                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#0F8A5F] text-white text-[9px] font-black flex items-center justify-center shadow-soft-sm">
+                                      {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                  ) : isUnread ? (
                                     <span className="w-4.5 h-4.5 rounded-full bg-[#0F8A5F] text-white text-[9px] font-black flex items-center justify-center animate-pulse shadow-soft-sm">
                                       1
                                     </span>
-                                  )}
+                                  ) : null}
                                   
                                   {/* Web Safe Encryption Symbol */}
                                   <span className="text-stone-400 dark:text-neutral-600 text-[10px]" title="End-to-End Encrypted">
