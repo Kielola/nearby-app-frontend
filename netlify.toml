@@ -13,12 +13,40 @@
   # (">=22") and what Netlify's default image provides.
   NODE_VERSION = "22"
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # SECRETS SCANNING — two public values exempted by name
+  #
+  # Netlify compares every configured environment-variable VALUE against the raw
+  # text of the repo and the build output, comments included. Two of those values
+  # are VITE_FIREBASE_PROJECT_ID and VITE_FIREBASE_AUTH_DOMAIN, and this file has
+  # to state the Firebase hostname literally for the /__/auth proxy below to work
+  # at all — redirect targets in netlify.toml cannot be filled in from a variable.
+  #
+  # Both values are public by design. The Firebase web config is designed to ship
+  # inside a browser bundle; it is the same config every visitor's browser
+  # downloads, and knowing the project id grants nothing on its own. Authorisation
+  # is enforced by Firestore rules and by the backend's token check, not by
+  # keeping this config secret.
+  #
+  # The backend's real secrets — FIREBASE_PRIVATE_KEY, DATABASE_URL — live on
+  # Render and are not in this repository, so this exemption cannot affect them.
+  #
+  # This is the remedy Netlify's own failure message names, and it is deliberately
+  # narrower than the alternatives: scanning stays ON and keeps watching every
+  # other key and every other file, including the built assets.
+  #
+  # If a build ever fails again naming a different key, add that key here. Never
+  # set SECRETS_SCAN_ENABLED = "false" — that would blind the check for genuine
+  # credentials too.
+  # ───────────────────────────────────────────────────────────────────────────
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_PROJECT_ID"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FIREBASE AUTH HANDLER PROXY — needed only once you switch the auth domain
 #
 # Firebase serves its sign-in helper (and the password-reset action page) from
 # https://<project>.firebaseapp.com/__/auth/*. Left alone, that is why Google
-# sign-in shows "to continue to nearby-socials.firebaseapp.com" and why password
+# sign-in shows "to continue to <project>.firebaseapp.com" and why password
 # reset links point at firebaseapp.com.
 #
 # The way to own that domain without moving your hosting to Firebase is to proxy
@@ -42,8 +70,8 @@
 #      by Google Service)" → Authorized redirect URIs: add
 #      https://nearby.fashfos.com/__/auth/handler
 #
-# If sign-in ever breaks after the switch, change VITE_FIREBASE_AUTH_DOMAIN back
-# to nearby-socials.firebaseapp.com and redeploy — instant rollback, no code change.
+# If sign-in ever breaks after the switch, change VITE_FIREBASE_AUTH_DOMAIN
+# back to your <project>.firebaseapp.com value and redeploy — instant rollback.
 # ─────────────────────────────────────────────────────────────────────────────
 [[redirects]]
   from = "/__/auth/*"
