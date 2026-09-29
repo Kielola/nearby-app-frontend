@@ -7,7 +7,12 @@ import {
   isLocationFailure,
   type LocationOutcome,
 } from '../services/geolocation';
-import { fallbackLabelFor, locationService, reverseGeocode } from '../services/locationService';
+import {
+  fallbackLabelFor,
+  locationService,
+  looksLikeCoordinates,
+  reverseGeocode,
+} from '../services/locationService';
 import { useCallback } from 'react';
 
 /**
@@ -133,10 +138,19 @@ export function useLocationActions(deps: UseLocationActionsDeps) {
           (await reverseGeocode(lat, lng, accuracy)) ??
           fallbackLabelFor(lat, lng, accuracy);
 
-        setUserAddress(resolved.label);
+        // Final safety net. A bare coordinate pair must never become the
+        // address a user sees or that gets stored — users reported reading
+        // "6.5833, 3.3667" as if it were an IP address. If anything upstream
+        // ever produces one again, it stops here rather than being displayed
+        // and persisted.
+        const safeLabel = looksLikeCoordinates(resolved.label)
+          ? fallbackLabelFor(lat, lng, accuracy).label
+          : resolved.label;
+
+        setUserAddress(safeLabel);
 
         const newPreset: LocationPreset = {
-          name: resolved.label,
+          name: safeLabel,
           city: resolved.state ?? resolved.town ?? '',
           coords: { lat, lng },
           streets: resolved.road ? [resolved.road] : [],
@@ -145,7 +159,7 @@ export function useLocationActions(deps: UseLocationActionsDeps) {
 
         try {
           localStorage.setItem('nearby_last_user_coords', JSON.stringify({ lat, lng }));
-          localStorage.setItem('nearby_user_address', resolved.label);
+          localStorage.setItem('nearby_user_address', safeLabel);
           localStorage.setItem('nearby_selected_preset', JSON.stringify(newPreset));
         } catch (_) {}
 
@@ -153,10 +167,15 @@ export function useLocationActions(deps: UseLocationActionsDeps) {
         // is shown to OTHER users on their radar, so a guess here becomes
         // someone else's misinformation. If the fix was too coarse we send
         // coordinates-accuracy only and leave the stored label untouched.
-        if (shouldWriteToNetwork && resolved.precision === 'street' && resolved.road) {
+        if (
+          shouldWriteToNetwork &&
+          resolved.precision === 'street' &&
+          resolved.road &&
+          !looksLikeCoordinates(safeLabel)
+        ) {
           try {
             await usersApi.updateMe({
-              streetName: resolved.label,
+              streetName: safeLabel,
               locationAccuracy: accuracy,
             });
           } catch (e) {

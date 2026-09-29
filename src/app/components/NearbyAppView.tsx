@@ -23,6 +23,8 @@ export default function NearbyAppView() {
             without prop-drilling through the controller. */}
         <CallComingSoonModal />
         <AppModals />
+        {/* Invite-link capture lives in App.tsx, above the auth branch — it has
+            to run on the landing screen, before a visitor has an account. */}
         <BottomNav />
         <SecondaryModals />
       </div>

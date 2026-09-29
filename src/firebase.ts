@@ -791,14 +791,54 @@ export async function signOut(authInstance: any) {
   await fSignOut(auth);
 }
 
+/**
+ * Turn a Firebase auth error code into something a human can act on.
+ *
+ * These are the failures that actually strand a user on the sign-in screen, and
+ * each one has a different fix in a different console. The default messages
+ * ("Firebase: Error (auth/unauthorized-domain).") name the symptom and nothing
+ * else — and during a launch weekend the person reading it is usually the
+ * person who has to fix it, often from a phone.
+ *
+ * `auth/unauthorized-domain` in particular is the single most likely error
+ * after moving to a custom domain: it means the domain was never added under
+ * Firebase -> Authentication -> Settings -> Authorized domains.
+ */
+function explainAuthError(err: any): string | null {
+  const code = String(err?.code ?? '');
+  switch (code) {
+    case 'auth/operation-not-allowed':
+      return "Google Sign-In is not enabled for this project. In the Firebase console, go to Authentication -> Sign-In Method and enable 'Google'.";
+    case 'auth/unauthorized-domain':
+      return (
+        "This website's domain is not authorised for sign-in yet. In the Firebase console, go to " +
+        'Authentication -> Settings -> Authorized domains and add this site\'s domain (including the ' +
+        'custom domain if you use one), then try again.'
+      );
+    case 'auth/invalid-api-key':
+    case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
+      return 'Firebase rejected the API key. Check VITE_FIREBASE_API_KEY against the Firebase console (Project settings -> General -> Your apps), then rebuild — this value is baked in at build time.';
+    case 'auth/network-request-failed':
+      return 'We could not reach Google. Check your internet connection and try again.';
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the sign-in pop-up. Allow pop-ups for this site, then try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Sign-in was cancelled before it finished. Try again.';
+    case 'auth/internal-error':
+      return 'Firebase could not complete the sign-in. This usually means the sign-in helper on your domain is misconfigured — see the domain/proxy notes in the launch runbook.';
+    default:
+      return null;
+  }
+}
+
 export async function signInWithPopup(authInstance: any, provider: any) {
   try {
     return await fSignInWithPopup(auth, provider);
   } catch (err: any) {
     console.error("Sign-in with popup failed:", err);
-    if (err.code === 'auth/operation-not-allowed') {
-      throw new Error("Google Sign-In is not enabled in your Firebase Console. Under Authentication -> Sign-In Method, enable 'Google' as a sign-in provider.");
-    }
+    const explained = explainAuthError(err);
+    if (explained) throw new Error(explained);
     throw err;
   }
 }
@@ -808,8 +848,13 @@ export async function signInWithEmailAndPassword(authInstance: any, email: strin
     return await fSignInWithEmailAndPassword(auth, email, pass);
   } catch (err: any) {
     console.error("Sign-in with email failed:", err);
-    if (err.code === 'auth/operation-not-allowed') {
-      throw new Error("Email/Password Sign-In is not enabled in your Firebase Console. Under Authentication -> Sign-In Method, enable 'Email/Password' as a sign-in provider.");
+    const explained = explainAuthError(err);
+    if (explained) throw new Error(explained);
+    if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password' || err?.code === 'auth/user-not-found') {
+      throw new Error('That email and password do not match an account. If you forgot it, use "Forgot password".');
+    }
+    if (err?.code === 'auth/too-many-requests') {
+      throw new Error('Too many attempts. Wait a minute and try again.');
     }
     throw err;
   }

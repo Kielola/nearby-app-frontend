@@ -3,6 +3,7 @@ import { APIProvider, Map, AdvancedMarker, Pin as GMapPin, useMap, useMapsLibrar
 import { motion, AnimatePresence } from 'motion/react';
 import GoogleMapIntegration from '../../features/maps/components/GoogleMapIntegration';
 import { OnboardingScreen } from '../../features/authentication/components/OnboardingScreen';
+import ReferralHub from '../../features/referrals/components/ReferralHub';
 import { CallOverlay } from '../../features/calls/components/CallOverlay';
 import { LandingScreen } from '../../features/authentication/components/LandingScreen';
 import {
@@ -67,6 +68,7 @@ import {
   FileText,
   Download,
   Crown,
+  Gift,
   SlidersHorizontal,
   Reply,
   Trash2,
@@ -453,6 +455,36 @@ export default function MenuTab() {
                           </div>
                         </div>
 
+                        {/* SETTING GROUP 2a: REWARDS */}
+                        <div className="space-y-2 text-left">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 px-1">Rewards & Growth</span>
+                          <div className={`border rounded-[24px] overflow-hidden shadow-sm ${
+                            appTheme === 'dark' ? 'bg-neutral-900/40 border-neutral-800' : 'bg-white border-stone-200/50'
+                          }`}>
+                            {/* Row 1: Referral programme hub */}
+                            <div
+                              onClick={() => {
+                                triggerBeep(420, 0.05);
+                                setSettingsSubView('referrals');
+                              }}
+                              className={`h-[64px] px-4 flex items-center justify-between cursor-pointer transition active:scale-[0.99] ${
+                                appTheme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-stone-50'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-3.5">
+                                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500">
+                                  <Gift className="w-4 h-4" />
+                                </div>
+                                <div className="text-left">
+                                  <span className="text-xs font-bold block">Rewards & Invites</span>
+                                  <span className="text-[10px] text-neutral-400 block">Invite friends, milestones, squads, treasure hunt, earnings</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-neutral-400" />
+                            </div>
+                          </div>
+                        </div>
+
                         {/* SETTING GROUP 2: DISCOVERY & UTILITIES */}
                         <div className="space-y-2 text-left">
                           <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 px-1">Connection & Proximity</span>
@@ -648,6 +680,22 @@ export default function MenuTab() {
                             </div>
                           </div>
                         </div>
+                      </motion.div>
+                    )}
+
+                    {/* REFERRAL REWARDS SUBVIEW */}
+                    {settingsSubView === 'referrals' && (
+                      <motion.div
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                      >
+                        <ReferralHub
+                          theme={appTheme === 'dark' ? 'dark' : 'light'}
+                          onBack={() => {
+                            triggerBeep(450, 0.05);
+                            setSettingsSubView('main');
+                          }}
+                        />
                       </motion.div>
                     )}
 

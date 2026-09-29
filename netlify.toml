@@ -35,11 +35,19 @@
   # narrower than the alternatives: scanning stays ON and keeps watching every
   # other key and every other file, including the built assets.
   #
+  # VITE_AUTH_CONTINUE_URL is the third exempted key, for the same reason and in
+  # advance: its value is the site's own address, and that address is already
+  # written literally in the comments below (the /__/auth proxy target and the
+  # authorised-redirect-URI note need it). A URL being present in the repo is
+  # not a leak — it is the address of the site the repo builds — but the scanner
+  # matches on text, so the key is exempted by name rather than having the
+  # documentation deleted to appease it.
+  #
   # If a build ever fails again naming a different key, add that key here. Never
   # set SECRETS_SCAN_ENABLED = "false" — that would blind the check for genuine
   # credentials too.
   # ───────────────────────────────────────────────────────────────────────────
-  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_PROJECT_ID"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_FIREBASE_AUTH_DOMAIN,VITE_FIREBASE_PROJECT_ID,VITE_AUTH_CONTINUE_URL"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FIREBASE AUTH HANDLER PROXY — needed only once you switch the auth domain
