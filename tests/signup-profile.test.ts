@@ -145,7 +145,37 @@ function check(name: string, pass: boolean, detail = '') {
   check('the form subscribes to the signup store', /useSignupProfile\(\)/.test(gate));
   check('there is a name field', /placeholder="Your name"/.test(gate));
   check('there is an age field', /placeholder="Age"/.test(gate) && /type="number"/.test(gate));
-  check('there is an area picker', /NEIGHBORHOODS\.map/.test(gate) && /Your area — pick one/.test(gate));
+  // The area is no longer a fixed menu. It is detected from where the phone is,
+  // and editable, because the old thirteen-item list was a demo list that left
+  // anyone outside those cities with no answer to give.
+  check(
+    'there is an area field',
+    /placeholder="Your area"/.test(gate),
+  );
+  check(
+    'the area is detected from location, not chosen from a fixed list',
+    /Use my current area/.test(gate) && /reverseGeocode\(/.test(gate),
+    'detection is what makes this work for a user in Akure or Jos',
+  );
+  check(
+    'the demo neighbourhood list is gone from registration',
+    !/NEIGHBORHOODS/.test(gate),
+    'a list that does not contain the user\'s home is worse than no list',
+  );
+  check(
+    'the area stays editable after detection',
+    /setSignupProfile\(\{ streetName: e\.target\.value \}\)/.test(gate),
+    'detection is sometimes wrong and permission is often denied — an unfixable field traps those users',
+  );
+  check(
+    'detection asks for a coarse fix, not a precise one',
+    /enableHighAccuracy: false/.test(gate) && /maximumAge:/.test(gate),
+    'we need a neighbourhood, so a fast cached fix is the right trade',
+  );
+  check(
+    'a refused location prompt is handled, not ignored',
+    /areaDetection === 'failed'/.test(gate) && /Couldn't get your location/.test(gate),
+  );
   check('there are interest chips', /INTEREST_OPTIONS\.map/.test(gate) && /aria-pressed=\{chosen\}/.test(gate));
   check(
     'the fields are on the signup screen only',
@@ -176,13 +206,18 @@ function check(name: string, pass: boolean, detail = '') {
   );
   check(
     'the profile is saved after the account is created',
-    actions.indexOf('createUserWithEmailAndPassword') < actions.indexOf('await saveSignupProfile()'),
+    actions.indexOf('createUserWithEmailAndPassword') < actions.indexOf('saveSignupProfile()'),
     'the PATCH needs a live session, so it must come after',
   );
+  // Deliberately NOT awaited. It was, and that was wrong: it made registration
+  // wait on a second network call to the backend, which on a cold-started
+  // instance is several seconds of spinner immediately after creating an account.
+  // The account already exists at this point; nothing about finishing sign-up
+  // should depend on this request.
   check(
-    'the save is awaited, not fired and forgotten',
-    /await saveSignupProfile\(\)/.test(actions),
-    'the profile would still be empty when the user reaches the app',
+    'the save does not block the sign-up flow',
+    /void saveSignupProfile\(\)/.test(actions) && !/await saveSignupProfile\(\)/.test(actions),
+    'awaiting it stalls registration behind a cold backend',
   );
   check(
     'a save failure does not look like a failed registration',

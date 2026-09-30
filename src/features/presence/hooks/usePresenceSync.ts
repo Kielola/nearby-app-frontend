@@ -12,6 +12,26 @@ const HEARTBEAT_INTERVAL_MS = 60_000;
 // carries is_online for everyone on it, which is what the UI mostly needs.
 const STATUS_POLL_INTERVAL_MS = 120_000;
 
+/**
+ * A shared, frozen "nobody is online" result.
+ *
+ * DO NOT replace this with an inline `{}` or `?? {}`.
+ *
+ * This is not a micro-optimisation — it is the difference between the app working
+ * and the app running a render loop. `?? {}` builds a BRAND-NEW object every time
+ * the expression is evaluated. The value returned from here feeds a `useEffect`
+ * dependency array, so a fresh identity re-runs that effect, which writes state,
+ * which re-renders, which calls this again and builds another new object.
+ *
+ * The query is `enabled: false` until there is somebody to watch, and `data`
+ * stays `undefined` while it is disabled — so for a brand-new account with no
+ * neighbours yet, that loop had no exit condition at all. It pinned the CPU and
+ * made the app feel broken, worst of all right after registering.
+ *
+ * One frozen module-level object keeps the identity stable forever.
+ */
+const EMPTY_STATUS: Record<string, boolean> = Object.freeze({});
+
 // Sends a heartbeat while the app is open (keeps this user's own presence
 // key alive server-side), and separately polls online/offline status for
 // whichever set of user ids the caller cares about right now (e.g. the
@@ -49,5 +69,5 @@ export function usePresenceSync(enabled: boolean, watchedUserIds: string[]) {
     refetchInterval: STATUS_POLL_INTERVAL_MS,
   });
 
-  return { onlineStatusByUserId: statusQuery.data ?? {} };
+  return { onlineStatusByUserId: statusQuery.data ?? EMPTY_STATUS };
 }

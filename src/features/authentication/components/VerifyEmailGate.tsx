@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Mail, RefreshCw, LogOut, CheckCircle2, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 import { auth } from '../../../firebase';
+import { webmailTargetFor } from '../services/webmail';
 import { signOut } from 'firebase/auth';
 import {
   sendVerificationEmail,
@@ -143,6 +144,12 @@ export default function VerifyEmailGate({ onVerified }: Props) {
     }
   }, []);
 
+  // The provider's inbox for the address they registered with, if we know it.
+  // Computed on every render rather than stored: it is a pure lookup on a
+  // string, and caching it in state would risk showing a stale provider if
+  // the account ever changed.
+  const webmail = webmailTargetFor(email);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#F8F9FB] dark:bg-neutral-950">
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 max-w-[440px] w-full mx-auto">
@@ -218,17 +225,28 @@ export default function VerifyEmailGate({ onVerified }: Props) {
               )}
             </motion.button>
 
-            {/* Secondary: open mail app */}
-            <motion.button
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                window.location.href = 'mailto:';
-              }}
-              className="w-full h-[56px] bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-800 text-[#161616] dark:text-neutral-100 rounded-[18px] text-[15px] font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-            >
-              <Mail className="w-4 h-4" />
-              <span>Open my email app</span>
-            </motion.button>
+            {/* Secondary: open the inbox.
+                This used to be `window.location.href = 'mailto:'`. A `mailto:` with
+                no recipient does not open the inbox — it opens the mail client in
+                COMPOSE mode, so tapping "Open my email app" produced a blank new
+                message addressed to nobody. There is no web API that opens an inbox;
+                linking to the provider's web inbox is the closest thing that actually
+                works, because Gmail/Outlook/Yahoo/iCloud all register app links for
+                their web URLs and open the native app on a phone.
+                When the provider is not recognised we render nothing rather than a
+                button that does the wrong thing — the guidance below still applies. */}
+            {webmail && (
+              <motion.a
+                whileTap={{ scale: 0.98 }}
+                href={webmail.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="w-full h-[56px] bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-800 text-[#161616] dark:text-neutral-100 rounded-[18px] text-[15px] font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              >
+                <Mail className="w-4 h-4" />
+                <span>{webmail.label}</span>
+              </motion.a>
+            )}
 
             {/* Tertiary: resend */}
             <motion.button
@@ -257,8 +275,9 @@ export default function VerifyEmailGate({ onVerified }: Props) {
           <div className="rounded-[14px] bg-white dark:bg-neutral-900 border border-neutral-200/70 dark:border-neutral-800 px-4 py-3.5 space-y-1.5">
             <p className="text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               <span className="font-semibold text-[#161616] dark:text-neutral-200">Not seeing it?</span>{' '}
-              Check your spam or promotions folder. The sender is a Firebase address, so filters
-              can be cautious with it.
+              Open your email app yourself and look for a message from Nearby.{' '}
+              Check your spam or promotions folder too — the sender is a Firebase address, so
+              filters can be cautious with it.
             </p>
             <p className="text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               Wrong address?{' '}

@@ -11,12 +11,71 @@ import { sendEmailVerification } from 'firebase/auth';
 import { useNearbyRuntime } from '../context/NearbyRuntimeContext';
 import { readPendingReferralCode, writePendingReferralCode, normaliseReferralCode } from '../../features/referrals/pendingCode';
 import { useSignupProfile, setSignupProfile, INTEREST_OPTIONS } from '../../features/authentication/signupProfile';
-import { NEIGHBORHOODS } from '../../mockData';
+import { webmailTargetFor } from '../../features/authentication/services/webmail';
+import { reverseGeocode } from '../../features/maps/services/locationService';
 
 export default function AuthGate() {
   // What the user typed at registration. Held in a module store rather than local
   // state so it survives account creation and the verification step that follows.
   const signup = useSignupProfile();
+
+  // Area detection at registration. 'idle' | 'detecting' | 'done' | 'failed' —
+  // a string rather than a boolean because the three non-idle states need
+  // different words on screen and a boolean would collapse them.
+  const [areaDetection, setAreaDetection] = useState<'idle' | 'detecting' | 'done' | 'failed'>('idle');
+
+  /**
+   * Fill the area field from where the phone is right now.
+   *
+   * Deliberately coarse. `enableHighAccuracy: false` and a generous `maximumAge`
+   * ask for a fast, cheap, possibly-cached fix — we only need a neighbourhood, so
+   * burning battery and time on a precise one would be wasted. A five-minute-old
+   * fix still tells us which area the user is in.
+   *
+   * It resolves to "area, state" (e.g. "Yaba, Lagos") rather than the street: a
+   * street is more precise than a registration field needs to be, and more
+   * precise than most people would want to hand over before using the app.
+   *
+   * Failure is a normal outcome, not an error state — permission is declined, the
+   * device has no fix, or the geocoder is unreachable. All of those leave the
+   * field editable and the field is optional.
+   */
+  const detectArea = () => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setAreaDetection('failed');
+      return;
+    }
+
+    setAreaDetection('detecting');
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const resolved = await reverseGeocode(
+            position.coords.latitude,
+            position.coords.longitude,
+            position.coords.accuracy ?? null,
+          );
+
+          const area =
+            [resolved?.town, resolved?.state].filter(Boolean).join(', ') ||
+            resolved?.label ||
+            '';
+
+          if (area) {
+            setSignupProfile({ streetName: area });
+            setAreaDetection('done');
+          } else {
+            setAreaDetection('failed');
+          }
+        } catch {
+          setAreaDetection('failed');
+        }
+      },
+      () => setAreaDetection('failed'),
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
+    );
+  };
 
   const {
   showLandingMode,
@@ -688,25 +747,53 @@ const [referralCode, setReferralCode] = useState<string>(() => readPendingReferr
                             <div className="absolute left-[18px] text-neutral-400 group-focus-within:text-[#0F8A5F] transition-colors pointer-events-none">
                               <MapPin className="w-[18px] h-[18px]" />
                             </div>
-                            <select
+                            <input
+                              type="text"
                               value={signup.streetName}
                               onChange={(e) => setSignupProfile({ streetName: e.target.value })}
-                              className="w-full pl-[48px] pr-[14px] h-full bg-transparent text-[15px] font-medium text-[#161616] focus:outline-none font-sans cursor-pointer appearance-none"
+                              placeholder="Your area"
+                              className="w-full pl-[48px] pr-[14px] h-full bg-transparent text-[15px] font-medium text-[#161616] placeholder-[#9CA3AF] focus:outline-none font-sans"
+                              autoComplete="address-level2"
                               aria-label="Your area (optional)"
-                            >
-                              <option value="">Your area — pick one</option>
-                              {NEIGHBORHOODS.map((area) => {
-                                const label = `${area.name}, ${area.city}`;
-                                return (
-                                  <option key={label} value={label}>
-                                    {label}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                            <ChevronRight className="absolute right-[14px] w-4 h-4 text-neutral-400 rotate-90 pointer-events-none" />
+                            />
                           </div>
                         </div>
+
+                        {/* Area detection.
+                            This replaced a fixed menu of thirteen neighbourhoods. That
+                            menu was a demo list, not Nigeria — a user in Akure or Jos
+                            simply had no answer to give, and being asked to choose from a
+                            list that does not contain your home is worse than not being
+                            asked at all.
+
+                            Now the area comes from where the phone actually is, which is
+                            one tap and no knowledge required, and it is editable because
+                            detection is sometimes wrong and permission is sometimes
+                            denied. A field that cannot be corrected would leave those
+                            users stuck with a wrong area forever. */}
+                        <button
+                          type="button"
+                          onClick={detectArea}
+                          disabled={areaDetection === 'detecting'}
+                          className="w-full h-[42px] rounded-[14px] border border-[#0F8A5F]/30 bg-[#0F8A5F]/8 text-[13px] font-semibold text-[#0B6244] hover:bg-[#0F8A5F]/14 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          {areaDetection === 'detecting' ? (
+                            <>
+                              <span className="w-3.5 h-3.5 rounded-full border-2 border-[#0F8A5F]/30 border-t-[#0F8A5F] animate-spin" />
+                              <span>Finding your area…</span>
+                            </>
+                          ) : (
+                            <>
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>{signup.streetName ? 'Use my current area instead' : 'Use my current area'}</span>
+                            </>
+                          )}
+                        </button>
+                        {areaDetection === 'failed' && (
+                          <p className="px-1 text-[11.5px] leading-snug text-neutral-500">
+                            Couldn't get your location. Type your area above, or skip it — you can set it later.
+                          </p>
+                        )}
 
                         <div className="space-y-2">
                           <p className="px-1 text-[11.5px] leading-snug text-neutral-500 font-medium">
@@ -898,8 +985,14 @@ const [referralCode, setReferralCode] = useState<string>(() => readPendingReferr
                     <motion.button
                       whileTap={{ scale: 0.98 }}
                       onClick={() => {
+                        // Was `window.location.href = "mailto:"`, which opens a blank
+                        // COMPOSE window rather than the inbox. See
+                        // features/authentication/services/webmail.ts. This screen is
+                        // currently unreachable (nothing sets authScreenState to
+                        // 'verification'), but the pattern is wrong wherever it lives.
                         triggerBeep(520, 0.08);
-                        window.location.href = "mailto:";
+                        const target = webmailTargetFor(currentUser?.email ?? authEmailOrPhone);
+                        if (target) window.open(target.url, '_blank', 'noopener,noreferrer');
                       }}
                       className="w-full h-[58px] bg-[#0F8A5F] hover:bg-[#0C7A53] text-white rounded-[18px] text-[15px] font-semibold tracking-wide transition duration-180 flex items-center justify-center cursor-pointer shadow-[0_4px_14px_rgba(15,138,95,0.25)]"
                       style={{ minHeight: '48px' }}

@@ -1,4 +1,5 @@
 import { readPendingReferralCode } from '../../../features/referrals/pendingCode';
+import { consumeVerificationReturn } from '../../../features/authentication/verificationReturn';
 /**
  * Modal, drawer and panel visibility flags
  *
@@ -56,8 +57,13 @@ export function useUiFlags(deps: UseUiFlagsDeps) {
      */
     const arrivedViaInvite = Boolean(readPendingReferralCode());
 
+    // Just back from the verification email — they tapped "continue" and Firebase
+    // sent them here. They can now sign in, so show them sign-in. The marketing
+    // screen would be the wrong answer and would look like the link had failed.
+    const arrivedFromVerification = consumeVerificationReturn();
+
     const [showLandingMode, setShowLandingMode] = useState<boolean>(
-      !hasSavedAccountOnDisk && !arrivedViaInvite,
+      !hasSavedAccountOnDisk && !arrivedViaInvite && !arrivedFromVerification,
     );
 
   // ── moved from src/app/hooks/useNearbyController.ts lines 366-373 ──

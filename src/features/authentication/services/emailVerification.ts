@@ -1,4 +1,5 @@
 import { auth } from '../../../firebase';
+import { withVerificationMarker } from '../verificationReturn';
 import { sendEmailVerification as firebaseSendEmailVerification } from 'firebase/auth';
 
 /**
@@ -71,7 +72,11 @@ function actionCodeSettings() {
   const continueUrl = (import.meta as any).env?.VITE_AUTH_CONTINUE_URL as string | undefined;
   if (!continueUrl) return undefined;
   return {
-    url: continueUrl,
+    // Carries `?verified=1` so the app can tell "just came back from verifying"
+    // apart from "new visitor". Without it the user lands on the marketing screen
+    // moments after being told they can continue, which looks like nothing
+    // happened. See verificationReturn.ts.
+    url: withVerificationMarker(continueUrl),
     handleCodeInApp: false,
   };
 }

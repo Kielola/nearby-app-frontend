@@ -248,11 +248,20 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
           setAudioFeedback("Account created.");
 
           // Save the registration answers the moment the account exists — the
-          // session is live here, which it was not a line ago. Awaited so the
-          // profile is populated before the user reaches the app, but its result
-          // is deliberately not surfaced: registration has already succeeded, and
-          // an error about an unsaved age would read as a failed sign-up.
-          await saveSignupProfile();
+          // session is live here, which it was not a line ago.
+          //
+          // NOT awaited, deliberately. This was `await`ed and that was a mistake:
+          // it makes registration wait on a second network call to the backend,
+          // and on a cold-started instance that is several seconds of the user
+          // staring at a spinner immediately after creating their account. The
+          // account already exists by this point; nothing about finishing the
+          // sign-up flow should depend on this request.
+          //
+          // The answers are not at risk: `clearSignupProfile` only runs on
+          // success, so a failure leaves them in the store rather than losing
+          // them. Its result is not surfaced either way — an error about an
+          // unsaved age would read as a failed registration, which would be a lie.
+          void saveSignupProfile().catch(() => undefined);
 
           // Send the verification link while we still have the freshly created
           // user in hand.

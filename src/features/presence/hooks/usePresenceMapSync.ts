@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { mergePresenceMap } from '../presenceMerge';
 
 /**
  * Merging live presence into the presence map
@@ -21,19 +22,10 @@ export function usePresenceMapSync(deps: UsePresenceMapSyncDeps) {
     setPresenceMap,} = deps;
 
 useEffect(() => {
-  setPresenceMap(prev => {
-    const next = { ...prev };
-    for (const [userId, isOnline] of Object.entries(onlineStatusByUserId)) {
-      next[userId] = {
-        online: isOnline,
-        status: isOnline ? 'active' : 'offline',
-        typing: next[userId]?.typing || '',
-        lastSeen: next[userId]?.lastSeen || '',
-        currentConversation: next[userId]?.currentConversation || '',
-      };
-    }
-    return next;
-  });
+  // mergePresenceMap returns the SAME reference when nothing changed, which is
+  // how React is told to skip the re-render. See presenceMerge.ts — this is the
+  // fix for a render loop, not a micro-optimisation.
+  setPresenceMap(prev => mergePresenceMap(prev, onlineStatusByUserId));
 }, [onlineStatusByUserId]);
 }
 

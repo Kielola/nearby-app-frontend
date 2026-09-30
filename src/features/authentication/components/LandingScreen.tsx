@@ -407,7 +407,10 @@ export function LandingScreen({
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                       triggerBeep(520, 0.08);
-                      window.location.href = "mailto:";
+                      // This file is never rendered — it is a deletion candidate. The mailto: is
+                      // removed anyway so the pattern is not copied elsewhere: a bare `mailto:`
+                      // opens a blank compose window, not the inbox.
+                      void 0;
                     }}
                     className="w-full h-[58px] bg-[#0F8A5F] hover:bg-[#0C7A53] text-white rounded-[18px] text-[15px] font-semibold tracking-wide transition duration-180 flex items-center justify-center cursor-pointer shadow-[0_4px_14px_rgba(15,138,95,0.25)]"
                     style={{ minHeight: '48px' }}
