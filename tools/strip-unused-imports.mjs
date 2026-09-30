@@ -176,7 +176,18 @@ function pruneBraced(statementText, body) {
   if (!braces) {
     // Default or namespace import: keep it or drop it whole.
     const names = localNames(statementText);
-    return names.length > 0 && names.some((n) => isUsed(n, body)) ? statementText : null;
+    // NEVER remove a statement that imports no names.
+    //
+    // `import './index.css';` binds nothing, so "is any imported name used?" is
+    // vacuously false and it looked like dead code. It is not dead code — it is
+    // a SIDE EFFECT, and the import IS the usage. Removing it compiles cleanly,
+    // passes every test, and ships an app with no stylesheet.
+    //
+    // Anything with no bindings is kept unconditionally. That is the only safe
+    // rule: nothing in the file can tell us whether the side effect matters.
+    if (names.length === 0) return statementText;
+
+    return names.some((n) => isUsed(n, body)) ? statementText : null;
   }
 
   const keep = braces[1]
