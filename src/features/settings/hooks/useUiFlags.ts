@@ -1,8 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
-import { UserNote } from '../../../mockData';
-import { DirectMessage, Neighbor } from '../../../types';
-import { useState } from 'react';
-
+import { readPendingReferralCode } from '../../../features/referrals/pendingCode';
 /**
  * Modal, drawer and panel visibility flags
  *
@@ -16,6 +12,10 @@ import { useState } from 'react';
  * it keeps growing, split the hook instead. Widen it only when a value is
  * genuinely shared state that this domain owns part of.
  */
+import { UserNote } from '../../../mockData';
+import { DirectMessage, Neighbor } from '../../../types';
+import { useState } from 'react';
+
 export interface UseUiFlagsDeps {
   hasSavedAccountOnDisk: any;
 }
@@ -31,7 +31,34 @@ export function useUiFlags(deps: UseUiFlagsDeps) {
 
   // ── moved from src/app/hooks/useNearbyController.ts lines 364-364 ──
 
-    const [showLandingMode, setShowLandingMode] = useState<boolean>(!hasSavedAccountOnDisk);
+    /**
+     * The marketing/landing screen, shown before any form.
+     *
+     * A brand-new visitor normally lands here and taps "Get Started" to reach the
+     * sign-up form. That is the right flow for someone who arrived at the app on
+     * their own.
+     *
+     * It is the WRONG flow for someone who followed an invite link. They were
+     * sent by a friend, they have a code, and the code has already been captured
+     * from the URL — making them tap "Get Started" first is one pointless step
+     * between the invitation and the form that acts on it. Worse, because this
+     * screen is what decides whether the form renders at all, an invitee could
+     * sit on the landing screen with a perfectly good code in storage and never
+     * see the sign-up form the code belongs to.
+     *
+     * So: arriving on `/join/CODE` or `?ref=CODE` skips the landing screen
+     * entirely and drops the visitor straight onto sign-up, with their code
+     * already in the field.
+     *
+     * This is the reason `?ref=` "did nothing" before: setting the auth screen to
+     * sign-up was not enough on its own, because this flag gates whether the auth
+     * screens render at all.
+     */
+    const arrivedViaInvite = Boolean(readPendingReferralCode());
+
+    const [showLandingMode, setShowLandingMode] = useState<boolean>(
+      !hasSavedAccountOnDisk && !arrivedViaInvite,
+    );
 
   // ── moved from src/app/hooks/useNearbyController.ts lines 366-373 ──
 

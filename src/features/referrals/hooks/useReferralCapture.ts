@@ -4,6 +4,7 @@ import {
   readPendingReferralCode,
   writePendingReferralCode,
   subscribeToPendingReferralCode,
+  referralCodeFromUrl,
 } from '../pendingCode';
 
 /**
@@ -46,11 +47,10 @@ export function useReferralCapture(isSignedIn: boolean) {
     if (typeof window === 'undefined') return;
 
     try {
-      const url = new URL(window.location.href);
-      const fromUrl = url.searchParams.get('ref') ?? url.searchParams.get('referral');
+      const href = window.location.href;
+      const clean = referralCodeFromUrl(href);
 
-      if (fromUrl) {
-        const clean = fromUrl.trim().toUpperCase();
+      if (clean) {
         // Writes through the shared store, which notifies the subscription
         // below — so there is one code path into state, not two.
         writePendingReferralCode(clean);
@@ -59,13 +59,21 @@ export function useReferralCapture(isSignedIn: boolean) {
         // visitor must never see an error because an analytics insert failed.
         void logReferralClick(clean).catch(() => undefined);
 
-        // Tidy the URL so a refresh or a shared screenshot does not resend it.
-        url.searchParams.delete('ref');
-        url.searchParams.delete('referral');
-        window.history.replaceState({}, '', url.toString());
+        // Tidy the URL so a refresh, a screenshot or a forwarded address does not
+        // resend it. `/join/CODE` is rewritten to the app root; query parameters
+        // are dropped. Either way the code is already safely in the store.
+        try {
+          const url = new URL(href);
+          url.searchParams.delete('ref');
+          url.searchParams.delete('referral');
+          if (/\/join\//i.test(url.pathname)) url.pathname = '/';
+          window.history.replaceState({}, '', url.toString());
+        } catch {
+          // Non-standard URL: leaving it alone is harmless, the code is stored.
+        }
       }
     } catch {
-      // Malformed URL or blocked storage: fall through to the store below.
+      // Blocked storage: fall through to the store read below.
     }
 
     // Seed immediately, then follow every later change (form edits, other tabs).

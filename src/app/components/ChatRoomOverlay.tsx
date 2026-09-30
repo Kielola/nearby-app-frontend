@@ -1,130 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
-import { APIProvider, Map, AdvancedMarker, Pin as GMapPin, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import GoogleMapIntegration from '../../features/maps/components/GoogleMapIntegration';
-import { OnboardingScreen } from '../../features/authentication/components/OnboardingScreen';
-import { CallOverlay } from '../../features/calls/components/CallOverlay';
-import { LandingScreen } from '../../features/authentication/components/LandingScreen';
-import {
-  MapPin,
-  Instagram,
-  Music,
-  MessageCircle,
-  Camera,
-  User,
-  Phone,
-  Video as VideoIcon,
-  PhoneOff,
-  Mic,
-  MicOff,
-  Send,
-  Upload,
-  Radio,
-  Navigation,
-  Compass,
-  Radar,
-  Heart,
-  Palette,
-  Check,
-  CheckCheck,
-  ChevronRight,
-  ChevronLeft,
-  Eye,
-  EyeOff,
-  Mail,
-  Plus,
-  X,
-  Play,
-  RotateCcw,
-  Search,
-  Sliders,
-  Sparkles,
-  Volume2,
-  Tv,
-  Smile,
-  Info,
-  Sun,
-  Moon,
-  UserPlus,
-  Settings,
-  Menu,
-  Grid,
-  Key,
-  Lock,
-  Bell,
-  Globe,
-  Link,
-  Share2,
-  HelpCircle,
-  Shield,
-  ShieldAlert,
-  CheckCircle2,
-  LogOut,
-  Image as ImageIcon,
-  Home,
-  Users,
-  Paperclip,
-  FileText,
-  Download,
-  Crown,
-  SlidersHorizontal,
-  Reply,
-  Trash2,
-  Pin,
-  Archive,
-  ArrowLeft,
-  MessageSquare,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-  Signal,
-  VolumeX,
-  MoreVertical,
-  MoreHorizontal,
-  Bluetooth,
-  Star
-} from 'lucide-react';
-import { Neighbor, DirectMessage, CallState, StorySnap, PublicSnap, Meetup, MeetupRating } from '../../types';
-import { NEIGHBORHOODS, NIGERIAN_STATES, INITIAL_NEIGHBORS, INITIAL_MESSAGES, LocationPreset, INITIAL_NOTES, UserNote } from '../../mockData';
-import { getStateStreets } from '../../utils';
-import {
-  auth,
-  db,
-  handleFirestoreError,
-  OperationType,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  where,
-  arrayUnion,
-  arrayRemove,
-  getDocFromServer,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  uploadToStorage,
-  createNotification,
-  markNotificationsAsRead,
-  AppNotification
-} from '../../firebase';
-import {
-  User as FirebaseUser,
-  sendPasswordResetEmail,
-  sendEmailVerification
-} from 'firebase/auth';
-import ExploreTab from '../../features/explore/components/ExploreTab';
+import { Instagram, Camera, User, Phone, Video as VideoIcon, Mic, Send, Radar, Check, CheckCheck, X, Play, Search, Smile, Info, Menu, Grid, Share2, Image as ImageIcon, FileText, Download, Reply, Trash2, Pin, Archive, ArrowLeft, MessageSquare, MoreVertical } from 'lucide-react';
+import { query } from '../../firebase';
 import { PremiumChatRoom } from '../../features/chat/components/PremiumChatRoom';
-import { PremiumProfileView } from '../../features/profile/components/PremiumProfileView';
 import { useNearbyRuntime } from '../context/NearbyRuntimeContext';
+import { useComposerText } from '../../features/chat/composerText';
+import { useTypingIndicatorPublisher } from '../../features/chat/hooks/useTypingIndicatorPublisher';
 
 export default function ChatRoomOverlay() {
   const {
@@ -142,8 +23,6 @@ export default function ChatRoomOverlay() {
     chatMessages,
     setChatMessages,
     currentUser,
-    textInput,
-    setTextInput,
     isAiTyping,
     customChatBg,
     setCustomChatBg,
@@ -206,6 +85,30 @@ export default function ChatRoomOverlay() {
     handleExportChat,
     theme,
   } = useNearbyRuntime();
+
+  /**
+   * The message box's text, subscribed to directly.
+   *
+   * This is the whole point of features/chat/composerText.ts. Subscribing here —
+   * inside the chat overlay, which is the only thing on screen while someone is
+   * typing — means a keystroke re-renders the chat and nothing else. It used to
+   * be root state consumed by the app-wide context, so every character re-rendered
+   * every tab, modal, nav bar and overlay in the app.
+   *
+   * The returned pair is a drop-in for `useState`, so every call site below is
+   * unchanged.
+   */
+  const [textInput, setTextInput] = useComposerText();
+
+  // Tells the other side that you are typing. It lives here, next to the text it
+  // watches, rather than in the root controller — a publisher that subscribes to
+  // every keystroke cannot itself sit above the whole app.
+  useTypingIndicatorPublisher({
+    currentUser,
+    selectedNeighbor,
+    selectedNeighborId: selectedNeighbor?.id,
+    textInput,
+  });
 
   return (
     <>

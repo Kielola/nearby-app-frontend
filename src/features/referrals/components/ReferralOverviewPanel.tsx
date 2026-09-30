@@ -1,8 +1,3 @@
-import { useState } from 'react';
-import { Copy, Check, Share2, Users } from 'lucide-react';
-import { formatNaira } from '../types';
-import type { ReferralAnalytics, ReferralProfile, ReferralRow } from '../types';
-
 /**
  * Invite tab: the code, the link, the funnel, and the list of people you
  * brought in.
@@ -13,6 +8,11 @@ import type { ReferralAnalytics, ReferralProfile, ReferralRow } from '../types';
  * fabricated statistic shown to users as their own performance. Nothing here is
  * derived, estimated, or repaired client-side.
  */
+import { useState } from 'react';
+import { Copy, Check, Share2, Users } from 'lucide-react';
+import { formatNaira } from '../types';
+import { ReferralAnalytics, ReferralProfile, ReferralRow } from '../types';
+
 export default function ReferralOverviewPanel({
   profile,
   referrals,

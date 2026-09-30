@@ -1,5 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
-
 /**
  * Contacts matching
  *
@@ -13,6 +11,8 @@ import type { Dispatch, SetStateAction } from 'react';
  * it keeps growing, split the hook instead. Widen it only when a value is
  * genuinely shared state that this domain owns part of.
  */
+import { Dispatch, SetStateAction } from 'react';
+
 export interface UseContactsSyncDeps {
   saveContactsToFirestore: any;
   setAudioFeedback: Dispatch<SetStateAction<any>>;

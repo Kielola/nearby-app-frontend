@@ -35,9 +35,21 @@ export const SYNTHETIC_PHONE_PREFIX = 'phone_';
  * `creationTime` is Firebase's own record of when the account was made, so this
  * cannot be spoofed by the client.
  *
- * Set once and left alone. Moving it later only ever makes the gate stricter.
+ * The date this gate shipped. Accounts created from that moment on are gated;
+ * anything older is not.
+ *
+ * ⚠️ This was originally set to a date in the FUTURE ("2026-10-01") while the app
+ * was being used on 2026-09-30, which meant every account — including brand-new
+ * signups — counted as "older" and was grandfathered. The result was that
+ * verification silently did nothing and no email was ever sent, with no error
+ * anywhere: `sendVerificationEmail` returned a normal `not-required` and the gate
+ * waved the user straight through. A cutoff that excludes the present is a switch
+ * that turns the feature off.
+ *
+ * Moving this date EARLIER gates more accounts; moving it later gates fewer. Never
+ * set it ahead of the current date.
  */
-export const VERIFICATION_REQUIRED_SINCE = '2026-10-01T00:00:00Z';
+export const VERIFICATION_REQUIRED_SINCE = '2026-09-30T00:00:00Z';
 
 export interface VerifiableUser {
   email?: string | null;

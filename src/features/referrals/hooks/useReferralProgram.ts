@@ -1,19 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../../lib/api/httpClient';
 import * as api from '../api';
-import type {
-  BalanceSummary,
-  Influencer,
-  LedgerEntry,
-  LeaderboardBoards,
-  Milestone,
-  Payout,
-  ReferralAnalytics,
-  ReferralProfile,
-  ReferralRow,
-  Team,
-  TreasureCode,
-} from '../types';
+import { BalanceSummary, Influencer, LedgerEntry, LeaderboardBoards, Milestone, Payout, ReferralAnalytics, ReferralProfile, ReferralRow, Team, TreasureCode } from '../types';
 
 export interface ReferralProgramState {
   profile: ReferralProfile | null;

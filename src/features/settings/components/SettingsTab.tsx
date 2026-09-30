@@ -1,12 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { 
-  Bell, Search, ChevronRight, ChevronLeft, User, Lock, 
-  MapPin, Radar, MessageSquare, Palette, HelpCircle, Info, 
-  ShieldAlert, LogOut, Trash2, Eye, CheckCheck, Shield, 
-  UserPlus, Compass, Radio, Check, Sun, Moon, FileText, Sparkles
-} from 'lucide-react';
-import { Neighbor, StorySnap, Meetup, MeetupRating } from '../../../types';
+import { Bell, Search, ChevronRight, ChevronLeft, User, Lock, MapPin, Radar, MessageSquare, Palette, HelpCircle, Info, ShieldAlert, LogOut, Trash2, Eye, CheckCheck, Shield, UserPlus, Compass, Radio, Check, Sun, Moon, FileText, Sparkles } from 'lucide-react';
+import { Neighbor, Meetup, MeetupRating } from '../../../types';
+
 const PremiumProfileView = React.lazy(() => import('../../profile/components/PremiumProfileView').then(m => ({ default: m.PremiumProfileView })));
 
 interface SettingsTabProps {

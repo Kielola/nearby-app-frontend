@@ -1,13 +1,25 @@
 /**
  * Tests for the referral-code input path.
  *
- * This covers the wiring that lets a user arrive with `?ref=CODE`, see it
- * pre-filled on the sign-up form, edit or clear it, and have the exact string
- * they left in the box be the one that gets attributed.
+ * This covers the wiring that lets a user arrive on an invite link — `/join/CODE`
+ * or the older `?ref=CODE` — be taken straight to the sign-up form, see the code
+ * pre-filled, edit or clear it, and have the exact string they left in the box be
+ * the one that gets attributed.
  *
  * Plain `tsx` script, no framework — same convention as the other tests here.
  * Run: npx tsx tests/referral-code-input.test.ts
  */
+
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Read a source file relative to the frontend root. */
+function read(relativePath: string): string {
+  return readFileSync(join(root, relativePath), 'utf8');
+}
 
 const results: { name: string; pass: boolean; detail: string }[] = [];
 function check(name: string, pass: boolean, detail = '') {
@@ -223,6 +235,96 @@ async function loadModule(win: any) {
     threw = true;
   }
   check('the module is safe to import without a window', !threw);
+}
+
+// ── 7. Invite-link URL shapes ───────────────────────────────────────────────
+//
+// The app now shares `/join/CODE`, but links built the old way (`?ref=CODE`) are
+// already sitting in WhatsApp groups and cannot be recalled. Both must resolve.
+
+{
+  const { win } = makeFakeWindow();
+  const { referralCodeFromUrl, normaliseReferralCode } = await loadModule(win);
+
+  const cases: [string, string, string | null][] = [
+    ['the new /join/ path', 'https://nearby.fashfos.com/join/ABCD1234', 'ABCD1234'],
+    ['/join/ with a trailing slash', 'https://nearby.fashfos.com/join/ABCD1234/', 'ABCD1234'],
+    ['/join/ with arbitrary casing', 'https://nearby.fashfos.com/JOIN/abcd1234', 'ABCD1234'],
+    ['the original ?ref= parameter', 'https://nearby.fashfos.com/?ref=ABCD1234', 'ABCD1234'],
+    ['the older ?referral= spelling', 'https://nearby.fashfos.com/?referral=ABCD1234', 'ABCD1234'],
+    ['a bare path with no origin', '/join/ABCD1234', 'ABCD1234'],
+    ['?ref= alongside other parameters', 'https://nearby.fashfos.com/?utm=x&ref=ABCD1234&a=b', 'ABCD1234'],
+    ['a code with a dash', 'https://nearby.fashfos.com/join/REF-AB12', 'REF-AB12'],
+    ['lowercase query value is uppercased', 'https://nearby.fashfos.com/?ref=abcd1234', 'ABCD1234'],
+    ['no code at all', 'https://nearby.fashfos.com/', null],
+    ['an unrelated path', 'https://nearby.fashfos.com/about', null],
+    ['/join/ with nothing after it', 'https://nearby.fashfos.com/join/', null],
+    ['an empty string', '', null],
+  ];
+
+  for (const [name, url, expected] of cases) {
+    const got = referralCodeFromUrl(url);
+    check(
+      `invite URL: ${name}`,
+      got === expected,
+      `got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`,
+    );
+  }
+
+  // A code must never leak a path traversal or query fragment into storage.
+  const nasty = referralCodeFromUrl('https://x.com/join/AB%2F..%2FCD?ref=ZZZ');
+  check(
+    'a percent-encoded path cannot inject separators',
+    nasty === null || !nasty.includes('/'),
+    `got ${JSON.stringify(nasty)}`,
+  );
+  check('normalisation is idempotent', normaliseReferralCode(normaliseReferralCode('ab-12')) === 'AB-12');
+}
+
+// ── 8. Following an invite must actually land on the sign-up form ───────────
+//
+// This was genuinely broken. Two separate things had to be true for `?ref=` to
+// work, and only one of them was:
+//
+//   1. the auth screen has to be 'signup'          — was 'login'
+//   2. the landing screen must not hide the form   — was hiding it
+//
+// Setting only the first left the visitor on a landing screen with a valid code
+// in storage, never shown the form the code belonged to.
+{
+  const controller = read('src/app/hooks/useNearbyController.ts');
+  const flags = read('src/features/settings/hooks/useUiFlags.ts');
+
+  check(
+    'the auth screen opens on sign-up when an invite code is present',
+    /readPendingReferralCode\(\) \? 'signup' : 'login'/.test(controller),
+    "an invited visitor is shown a log-in form for an account they cannot have",
+  );
+  check(
+    'an invited visitor skips the landing screen',
+    /readPendingReferralCode/.test(flags) && /!hasSavedAccountOnDisk && !arrivedViaInvite/.test(flags),
+    'the landing screen gates whether auth screens render at all, so the sign-up form would stay hidden',
+  );
+  check(
+    'the sign-up field is seeded from the same store',
+    /useState<string>\(\(\) => readPendingReferralCode\(\) \?\? ''\)/.test(read('src/app/components/AuthGate.tsx')),
+    'the field would render empty even with a valid code in storage',
+  );
+}
+
+// ── 9. The shared link shape ────────────────────────────────────────────────
+{
+  const backend = readFileSync(join(root, '..', 'nearby-backend', 'src/referrals/referrals.service.ts'), 'utf8');
+  check(
+    'the backend shares /join/ links',
+    /\/join\/\$\{code\}/.test(backend),
+    'the link users share does not use the /join/ form',
+  );
+  check(
+    'no ?ref= link is still generated',
+    !/\/\?ref=\$\{code\}/.test(backend),
+    'the backend still hands out the old link shape',
+  );
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

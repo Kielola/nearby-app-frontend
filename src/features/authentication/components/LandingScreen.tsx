@@ -1,9 +1,5 @@
-import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Radar, ChevronRight, User, Lock, EyeOff, Eye, Mail, 
-  CheckCircle2, ShieldAlert, AlertTriangle 
-} from 'lucide-react';
+import { Radar, ChevronRight, User, Lock, EyeOff, Eye, Mail, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 interface LandingScreenProps {
   showLandingMode: boolean;

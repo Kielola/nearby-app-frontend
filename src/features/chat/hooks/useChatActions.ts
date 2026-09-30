@@ -1,3 +1,4 @@
+import { getComposerText, type SetComposerText } from '../composerText';
 import type { Dispatch, SetStateAction } from 'react';
 import { auth } from '../../../firebase';
 import { aiApi } from '../../../lib/api';
@@ -46,14 +47,13 @@ export interface UseChatActionsDeps {
   saveOrUpdateMessageInFirestore: any;
   selectedNeighbor: any;
   sendChatMessageViaSocket: any;
-  textInput: any;
   triggerBeep: any;
   setAudioFeedback: Dispatch<SetStateAction<any>>;
   setPlayingVoiceId: Dispatch<SetStateAction<any>>;
   setReplyingToMessage: Dispatch<SetStateAction<any>>;
   setShowForwardModal: Dispatch<SetStateAction<any>>;
   setSimulatedTypingMap: Dispatch<SetStateAction<any>>;
-  setTextInput: Dispatch<SetStateAction<any>>;
+  setTextInput: SetComposerText;
 }
 
 export function useChatActions(deps: UseChatActionsDeps) {
@@ -68,7 +68,6 @@ export function useChatActions(deps: UseChatActionsDeps) {
     saveOrUpdateMessageInFirestore,
     selectedNeighbor,
     sendChatMessageViaSocket,
-    textInput,
     triggerBeep,
     setAudioFeedback,
     setPlayingVoiceId,
@@ -177,7 +176,10 @@ export function useChatActions(deps: UseChatActionsDeps) {
       fileSize?: string
     ) => {
       if (!selectedNeighbor) return;
-      const inputContent = customText !== undefined ? customText : textInput;
+      // Read the composer's current text at call time rather than from a
+      // render-time closure. This is strictly more correct than the old
+      // behaviour: a send always uses what is in the box right now.
+      const inputContent = customText !== undefined ? customText : getComposerText();
       if (!inputContent.trim() && !customImage && !customVoiceDuration && !customType) return;
 
       // Friends-only messaging: real users (not the simulated "nb-" demo companions) must be

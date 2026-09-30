@@ -85,7 +85,7 @@ const CUTOFF = '2026-10-01T00:00:00Z';
 const grandfathered: [string, any][] = [
   ['a month-old account', { email: 'old@example.com', emailVerified: false, creationTime: '2026-09-01T10:00:00Z' }],
   ['an account made yesterday', { email: 'recent@example.com', emailVerified: false, creationTime: '2026-09-29T22:00:00Z' }],
-  ['an account made minutes before the cutoff', { email: 'edge@example.com', emailVerified: false, creationTime: '2026-09-30T23:59:59Z' }],
+  ['an account made just before the cutoff', { email: 'edge@example.com', emailVerified: false, creationTime: '2026-09-29T23:59:59Z' }],
   ['an account with no creation time recorded', { email: 'unknown@example.com', emailVerified: false, creationTime: undefined }],
   ['an unparseable creation time', { email: 'broken@example.com', emailVerified: false, creationTime: 'not-a-date' }],
 ];
@@ -126,6 +126,32 @@ for (const [name, user] of gated) {
     /verificationRequiredFor/.test(read('src/app/App.tsx')),
     'calling the rule with a raw Firebase user reads undefined creationTime and grandfathers everyone',
   );
+}
+
+// ── 2c. The cutoff must not be in the future ────────────────────────────────
+//
+// The bug this guards against shipped in the first version of this feature: the
+// cutoff was set a day ahead, so no account could ever be newer than it, so
+// nothing was ever gated and no email was ever sent. Every signal said success.
+{
+  const rules = read('src/features/authentication/services/verificationRules.ts');
+  const match = rules.match(/VERIFICATION_REQUIRED_SINCE\s*=\s*'([^']+)'/);
+  check('the cutoff is a literal date', Boolean(match), 'could not read the cutoff');
+
+  if (match) {
+    const cutoff = Date.parse(match[1]);
+    check(
+      'the cutoff is a parseable date',
+      !Number.isNaN(cutoff),
+      `"${match[1]}" does not parse`,
+    );
+    check(
+      'the cutoff is NOT in the future',
+      !Number.isNaN(cutoff) && cutoff <= Date.now(),
+      `cutoff is ${match[1]}, which is in the future — every account, including new signups, ` +
+        'would be grandfathered and verification would silently do nothing',
+    );
+  }
 }
 
 // ── 3. The trap that must never reopen ──────────────────────────────────────

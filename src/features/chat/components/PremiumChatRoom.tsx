@@ -1,11 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ArrowLeft, Search, Phone, Video as VideoIcon, MoreVertical, CheckCircle2, 
-  MessageSquare, Smile, Paperclip, Send, Mic, Trash2, Camera, Image as ImageIcon, 
-  FileText, MapPin, User, Music, Crown, X, Pin, Play, Download, Check, CheckCheck, 
-  Reply, Share2, ShieldAlert, Globe 
-} from 'lucide-react';
+import { ArrowLeft, Search, Phone, Video as VideoIcon, MoreVertical, CheckCircle2, MessageSquare, Smile, Paperclip, Send, Mic, Trash2, Camera, Image as ImageIcon, FileText, MapPin, User, Music, Crown, X, Pin, Play, Download, Check, CheckCheck, Reply, Share2, ShieldAlert, Globe } from 'lucide-react';
 
 export interface PremiumChatRoomProps {
   selectedNeighbor: any;

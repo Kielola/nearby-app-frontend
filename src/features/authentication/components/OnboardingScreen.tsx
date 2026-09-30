@@ -1,5 +1,3 @@
-import React from 'react';
-import { motion } from 'motion/react';
 import { MapPin, Camera, ChevronRight, Check } from 'lucide-react';
 
 interface OnboardingScreenProps {

@@ -1,5 +1,5 @@
 import { db, setDocument, getDocument } from '../../../services/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 
 export const profileService = {
   getUserProfile: async (uid: string) => {

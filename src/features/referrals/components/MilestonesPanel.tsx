@@ -1,9 +1,3 @@
-import { useState } from 'react';
-import { Lock, Check } from 'lucide-react';
-import { claimMilestone } from '../api';
-import { formatNaira } from '../types';
-import type { Milestone } from '../types';
-
 /**
  * The five reward tiers.
  *
@@ -17,6 +11,12 @@ import type { Milestone } from '../types';
  * inside `recordReferral` *and* offered as manually claimable, so they could pay
  * twice. Here they pay once, whichever path reaches them first.
  */
+import { useState } from 'react';
+import { Lock, Check } from 'lucide-react';
+import { claimMilestone } from '../api';
+import { formatNaira } from '../types';
+import { Milestone } from '../types';
+
 export default function MilestonesPanel({
   milestones,
   verifiedInvites,

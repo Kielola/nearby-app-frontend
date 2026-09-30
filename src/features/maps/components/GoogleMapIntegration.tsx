@@ -1,19 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { APIProvider, Map, AdvancedMarker, useMap } from '@vis.gl/react-google-maps';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  MapPin, 
-  Compass, 
-  Navigation, 
-  Search, 
-  Settings, 
-  X, 
-  SlidersHorizontal, 
-  Sparkles, 
-  MessageSquare, 
-  User,
-  RefreshCw
-} from 'lucide-react';
+import { MapPin, Compass, Navigation, Search, Settings, X, SlidersHorizontal, MessageSquare, User, RefreshCw } from 'lucide-react';
 import { Neighbor } from '../../../types';
 import { NEIGHBORHOODS, LocationPreset } from '../../../mockData';
 

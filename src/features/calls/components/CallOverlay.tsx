@@ -1,9 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  PhoneOff, Phone, MicOff, Mic, WifiOff, Camera, RefreshCw, 
-  Bluetooth, Volume2, VolumeX, UserPlus, Signal, Star, Sparkles 
-} from 'lucide-react';
+import { PhoneOff, Phone, MicOff, Mic, WifiOff, Camera, RefreshCw, Bluetooth, Volume2, VolumeX, UserPlus, Signal, Star, Sparkles } from 'lucide-react';
 import { CallState, Neighbor } from '../../../types';
 
 interface CallOverlayProps {

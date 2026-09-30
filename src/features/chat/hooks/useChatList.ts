@@ -1,7 +1,3 @@
-import { useMemo } from 'react';
-import type { DirectMessage, Neighbor } from '../../../types';
-import { AppNotification } from '../../notifications/services/createNotification';
-
 /**
  * Chat-list ordering and notification grouping.
  *
@@ -15,6 +11,9 @@ import { AppNotification } from '../../notifications/services/createNotification
  *
  * 7 parameters, all read-only.
  */
+import { useMemo } from 'react';
+import { AppNotification } from '../../notifications/services/createNotification';
+
 export interface UseChatListDeps {
   archivedNeighborIds: any;
   chatFilter: any;

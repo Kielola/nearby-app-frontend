@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useProcessPayment } from '../../features/premium/hooks/useProcessPayment';
 import { useCancelVoiceRecording } from '../../features/chat/hooks/useCancelVoiceRecording';
 import { useStopAndSendVoice } from '../../features/chat/hooks/useStopAndSendVoice';
@@ -8,7 +8,7 @@ import { useCapturePhoto } from '../../features/camera/hooks/useCapturePhoto';
 import { useCallSessionTimers } from '../../features/calls/hooks/useCallSessionTimers';
 import { useStoryAutoAdvance } from '../../features/stories/hooks/useStoryAutoAdvance';
 import { useStoryViewerPlayback } from '../../features/stories/hooks/useStoryViewerPlayback';
-import { useTypingIndicatorPublisher } from '../../features/chat/hooks/useTypingIndicatorPublisher';
+import { setComposerText } from '../../features/chat/composerText';
 import { useMeetupsSync } from '../../features/meetups/hooks/useMeetupsSync';
 import { useAppearanceModeEffect } from '../../features/settings/hooks/useAppearanceModeEffect';
 import { useMyHighlights } from '../../features/profile/hooks/useMyHighlights';
@@ -30,116 +30,19 @@ import { usePresenceHeartbeat } from '../../features/presence/hooks/usePresenceH
 import { useChatScrollAnchoring } from '../../features/chat/hooks/useChatScrollAnchoring';
 import { useChatReadReceipts } from '../../features/chat/hooks/useChatReadReceipts';
 import { useStoryExpiry } from '../../features/stories/hooks/useStoryExpiry';
-import { APIProvider, Map, AdvancedMarker, Pin as GMapPin, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
-import { motion, AnimatePresence } from 'motion/react';
-import {
-  MapPin,
-  Instagram,
-  Music,
-  MessageCircle,
-  Camera,
-  User,
-  Phone,
-  Video as VideoIcon,
-  PhoneOff,
-  Mic,
-  MicOff,
-  Send,
-  Upload,
-  Radio,
-  Navigation,
-  Compass,
-  Radar,
-  Heart,
-  Palette,
-  Check,
-  CheckCheck,
-  ChevronRight,
-  ChevronLeft,
-  Eye,
-  EyeOff,
-  Mail,
-  Plus,
-  X,
-  Play,
-  RotateCcw,
-  Search,
-  Sliders,
-  Sparkles,
-  Volume2,
-  Tv,
-  Smile,
-  Info,
-  Sun,
-  Moon,
-  UserPlus,
-  Settings,
-  Menu,
-  Grid,
-  Key,
-  Lock,
-  Bell,
-  Globe,
-  Link,
-  Share2,
-  HelpCircle,
-  Shield,
-  ShieldAlert,
-  CheckCircle2,
-  LogOut,
-  Image as ImageIcon,
-  Home,
-  Users,
-  Paperclip,
-  FileText,
-  Download,
-  Crown,
-  SlidersHorizontal,
-  Reply,
-  Trash2,
-  Pin,
-  Archive,
-  ArrowLeft,
-  MessageSquare,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-  Signal,
-  VolumeX,
-  MoreVertical,
-  MoreHorizontal,
-  Bluetooth,
-  Star
-} from 'lucide-react';
-import { Neighbor, DirectMessage, CallState, StorySnap, PublicSnap, Meetup, MeetupRating } from '../../types';
-import { radarApi, usersApi, chatApi, presenceApi, aiApi } from '../../lib/api';
-import { mediaApi } from '../../lib/api/mediaApi';
+import { Map } from '@vis.gl/react-google-maps';
+import { Instagram, Camera, User, Upload, Compass, Radar, X, Settings, Key, Reply } from 'lucide-react';
+import { Neighbor, DirectMessage, StorySnap, Meetup, MeetupRating } from '../../types';
+import { radarApi, usersApi, chatApi } from '../../lib/api';
 import { useNearbyUsersQuery } from '../../features/maps/hooks/useNearbyUsersQuery';
 import { useAuth } from '../../features/authentication/context/AuthContext';
 import { useChatSync } from '../../features/chat/hooks/useChatSync';
 import { useFriendsSync } from '../../features/friends/hooks/useFriendsSync';
 import { useUserContent } from '../../features/content/hooks/useUserContent';
-import { getCallSocket } from '../../lib/socket/callSocket';
-import { getChatSocket } from '../../lib/socket/chatSocket';
-import {
-  reverseGeocode,
-  fallbackLabelFor,
-  locationService,
-  clearLocationCache,
-} from '../../features/maps/services/locationService';
-import {
-  acquireLocation,
-  clearStoredLocation,
-  isLocationFailure,
-  isLocationSuccess,
-  type LocationFailure,
-  type LocationOutcome,
-} from '../../features/maps/services/geolocation';
+import { type LocationFailure } from '../../features/maps/services/geolocation';
 import { useCallSignaling } from '../../features/calls/hooks/useCallSignaling';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { usePresenceSync } from '../../features/presence/hooks/usePresenceSync';
-import { friendsApi } from '../../lib/api';
-import { postsApi, highlightsApi } from '../../lib/api';
 import { getAppTheme } from '../theme/getAppTheme';
 import { useLocationTracking } from '../../features/maps/hooks/useLocationTracking';
 import { useAuthProfileSync } from '../../features/authentication/hooks/useAuthProfileSync';
@@ -148,53 +51,11 @@ import { useAuthActions } from '../../features/authentication/hooks/useAuthActio
 import { useChatManagement } from '../../features/chat/hooks/useChatManagement.ts';
 import { useSocialActions } from '../../features/friends/hooks/useSocialActions.ts';
 import { useMediaUploads } from '../../features/media/hooks/useMediaUploads.ts';
-import {
-  playNotificationSound as playNotificationSoundImpl,
-  playSynthesizedVoiceNote as playSynthesizedVoiceNoteImpl,
-  triggerBeep as triggerBeepImpl,
-} from '../../features/audio/audioEngine';
-import { UNKNOWN_LOCATION, NEIGHBORHOODS, NIGERIAN_STATES, INITIAL_NEIGHBORS, INITIAL_MESSAGES, LocationPreset, INITIAL_NOTES, UserNote } from '../../mockData';
-import { getStateStreets } from '../../utils';
-import {
-  auth,
-  db,
-  handleFirestoreError,
-  OperationType,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  where,
-  arrayUnion,
-  arrayRemove,
-  getDocFromServer,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  uploadToStorage,
-} from '../../firebase';
-import { createNotification, AppNotification } from '../../features/notifications/services/createNotification';
-import { useNotificationsSync } from '../../features/notifications/hooks/useNotificationsSync';
-import { notificationsApi } from '../../lib/api';
-import { reportsApi } from '../../lib/api';
+import { playNotificationSound as playNotificationSoundImpl, playSynthesizedVoiceNote as playSynthesizedVoiceNoteImpl, triggerBeep as triggerBeepImpl } from '../../features/audio/audioEngine';
+import { UNKNOWN_LOCATION, NEIGHBORHOODS, INITIAL_NEIGHBORS, INITIAL_MESSAGES, LocationPreset, INITIAL_NOTES, UserNote } from '../../mockData';
+import { auth, db, doc, setDoc, collection, query, onSnapshot, where, getDocFromServer } from '../../firebase';
 import { meetupsApi } from '../../lib/api';
-import {
-  User as FirebaseUser,
-  sendPasswordResetEmail,
-  sendEmailVerification,
-  getRedirectResult,
-  signInWithRedirect,
-  setPersistence,
-  browserLocalPersistence
-} from 'firebase/auth';
+import { User as FirebaseUser } from 'firebase/auth';
 import { useMessages } from '../../features/chat/hooks/useMessages';
 import { useChatList } from '../../features/chat/hooks/useChatList';
 import { useNeighborPresence } from '../../features/presence/hooks/useNeighborPresence';
@@ -209,7 +70,7 @@ import { useChatRoomState } from '../../features/chat/hooks/useChatRoomState';
 import { useCameraState } from '../../features/camera/hooks/useCameraState';
 import { useStoryState } from '../../features/stories/hooks/useStoryState';
 
-
+import { readPendingReferralCode } from '../../features/referrals/pendingCode';
 const GOOGLE_MAPS_API_KEY =
   (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ||
   (typeof process !== 'undefined' ? process.env?.GOOGLE_MAPS_PLATFORM_KEY : '') ||
@@ -427,6 +288,12 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
   // a user wrote was discarded while the text sat on screen as if saved.
   if (typeof patch.bio === 'string') payload.bio = patch.bio;
 
+  // Collected at registration, editable afterwards in Settings. `age` is sent
+  // even when null so clearing it in Settings actually clears it on the server
+  // rather than being silently ignored.
+  if (typeof patch.age === 'number' || patch.age === null) payload.age = patch.age as number | null;
+  if (Array.isArray(patch.interests)) payload.interests = patch.interests as string[];
+
   await usersApi.updateMe(payload);
 };
 
@@ -600,15 +467,33 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
 
-  // Presence + typing live further down, after nearbyUsersData and
-  // textInput are in scope.
+  // Presence lives further down, after nearbyUsersData is in scope. The typing
+  // indicator now lives in ChatRoomOverlay, next to the text it watches.
 
 
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isSplashActive, setIsSplashActive] = useState<boolean>(true);
   const [welcomeTourStep, setWelcomeTourStep] = useState<number>(0);
 
-  const [authScreenState, setAuthScreenState] = useState<'login' | 'signup' | 'forgot' | 'verification'>('login');
+  /**
+   * Which auth screen to open on.
+   *
+   * Defaults to log-in, EXCEPT when the visitor arrived on an invite link
+   * (`/join/CODE` or `?ref=CODE`). Someone following an invite is a brand-new
+   * person who has no account yet, so showing them a log-in form is asking them
+   * for credentials they cannot have — and it buries the sign-up form one tap
+   * deeper than the link that brought them here.
+   *
+   * Seeding the state this way is deliberately done at initialisation rather than
+   * in an effect: an effect would render the log-in screen first and then flip,
+   * which is a visible flash and would drop the invitation code half the time.
+   *
+   * Falls back to 'login' if storage is unreadable, which is the correct default
+   * for a returning user.
+   */
+  const [authScreenState, setAuthScreenState] = useState<
+    'login' | 'signup' | 'forgot' | 'verification'
+  >(() => (readPendingReferralCode() ? 'signup' : 'login'));
   const [authSuccess, setAuthSuccess] = useState<string>('');
 
   useEffect(() => {
@@ -657,7 +542,11 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
   // Permission statuses for onboarding
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [textInput, setTextInput] = useState<string>('');
+  // The chat composer's text used to be state here. See
+  // features/chat/composerText.ts for why it is not any more: this hook is
+  // called at the root of the tree, so a keystroke in the chat box re-rendered
+  // every tab, modal and overlay in the app. It now lives in a store that the
+  // chat UI subscribes to directly, so typing re-renders only the chat.
   const [isAiTyping, setIsAiTyping] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
@@ -1445,13 +1334,6 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
     setPresenceMap((prev) => ({ ...pm, ...prev, ...pm }));
   }, [currentUser, onlineIds.join(',')]);
 
-  useTypingIndicatorPublisher({
-    currentUser,
-    selectedNeighbor,
-    selectedNeighborId,
-    textInput,
-  });
-
   // Real presence: heartbeat while the app is open, plus batch online/
   // offline status for the real (non-mock, non-group) neighbors currently
   // in view. This is what actually feeds presenceMap now — it existed
@@ -1695,14 +1577,13 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
     saveOrUpdateMessageInFirestore,
     selectedNeighbor,
     sendChatMessageViaSocket,
-    textInput,
     triggerBeep,
     setAudioFeedback,
     setPlayingVoiceId,
     setReplyingToMessage,
     setShowForwardModal,
     setSimulatedTypingMap,
-    setTextInput,
+    setTextInput: setComposerText,
   });
 
   // -----------------------------------------
@@ -2336,8 +2217,6 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
     setAuthError,
     isSyncing,
     setIsSyncing,
-    textInput,
-    setTextInput,
     isAiTyping,
     setIsAiTyping,
     searchQuery,

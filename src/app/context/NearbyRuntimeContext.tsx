@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { ReactNode } from 'react';
-import type { NearbyRuntime } from '../hooks/useNearbyController';
+import { ReactNode } from 'react';
+import { NearbyRuntime } from '../hooks/useNearbyController';
 
 const NearbyRuntimeContext = createContext<NearbyRuntime | null>(null);
 

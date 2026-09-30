@@ -33,6 +33,31 @@ export default defineConfig(({command, mode}) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    build: {
+      // Split the bundle into chunks the browser can fetch in parallel and cache
+      // independently, instead of one 1.6 MB file it must re-download in full on
+      // every deploy.
+      //
+      // A note on what this does and does not buy, because it is easy to
+      // oversell: splitting does NOT reduce the total bytes parsed, so it is not
+      // by itself a fix for slow start-up. What it does is let the ~200 KB of
+      // app code that changes on every deploy be cached separately from the
+      // ~1.4 MB of dependencies that rarely change, so a returning visitor
+      // re-downloads only the former. It also lets the network fetch the vendor
+      // chunks concurrently rather than in one long stream.
+      //
+      // The real start-up win is lazy-loading screens nobody sees on first
+      // paint, which is a change to render paths and is tracked separately.
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+            motion: ['motion/react'],
+          },
+        },
+      },
+    },
     define: {
       'process.env.GOOGLE_MAPS_PLATFORM_KEY': JSON.stringify(process.env.GOOGLE_MAPS_PLATFORM_KEY || '')
     },

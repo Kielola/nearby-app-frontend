@@ -1,20 +1,3 @@
-import { apiRequest } from '../../lib/api/httpClient';
-import type {
-  BalanceSummary,
-  Influencer,
-  LedgerEntry,
-  LeaderboardBoards,
-  LeaderboardPeriod,
-  Milestone,
-  MyRank,
-  Payout,
-  ReferralAnalytics,
-  ReferralProfile,
-  ReferralRow,
-  Team,
-  TreasureCode,
-} from './types';
-
 /**
  * The referral programme's API surface.
  *
@@ -26,8 +9,9 @@ import type {
  * "this user is eligible" flag. The client asks for things and the server
  * decides; nothing here can assert a fact about money.
  */
-
 // ── Referrals ───────────────────────────────────────────────────────────────
+import { apiRequest } from '../../lib/api/httpClient';
+import { BalanceSummary, Influencer, LedgerEntry, LeaderboardBoards, LeaderboardPeriod, Milestone, MyRank, Payout, ReferralAnalytics, ReferralProfile, ReferralRow, Team, TreasureCode } from './types';
 
 export const getReferralProfile = () => apiRequest<ReferralProfile>('/referrals/me');
 export const getReferrals = () => apiRequest<ReferralRow[]>('/referrals/list');

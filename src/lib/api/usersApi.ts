@@ -8,6 +8,10 @@ export interface UpdateMePayload {
   streetName?: string;
   customStatus?: string;
   locationAccuracy?: number | null;
+  // Collected at registration. `age` is nullable so someone who declines to
+  // give one can still register; `interests` is a list of tags.
+  age?: number | null;
+  interests?: string[];
 }
 
 export const usersApi = {

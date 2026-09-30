@@ -6,9 +6,13 @@
  *
  * The code has three possible origins and they must not fight each other:
  *
- *   1. `?ref=CODE` on the invite link the visitor clicked
- *   2. `?referral=CODE`, the older parameter, still live in shared links
- *   3. A code typed or pasted into the sign-up field
+ *   1. `/join/CODE` — the link the app now generates and shares
+ *   2. `?ref=CODE` — the original parameter, still live in links already sent
+ *   3. `?referral=CODE` — the older spelling of the same thing
+ *   4. A code typed or pasted into the sign-up field
+ *
+ * All four land in the same slot. Old links must keep working forever: a link
+ * already pasted into a WhatsApp group cannot be recalled and fixed.
  *
  * Whichever came last wins, and all three end up in the same slot. That slot is
  * `localStorage`, because attribution has to survive a page reload and an email
@@ -113,6 +117,42 @@ export function subscribeToPendingReferralCode(
     window.removeEventListener(CHANGE_EVENT, handleLocal);
     window.removeEventListener('storage', handleCrossTab);
   };
+}
+
+/**
+ * Pull a referral code out of a URL, from any of the supported shapes.
+ *
+ * Handles `/join/ABCD1234` and its trailing-slash and nested variants, plus the
+ * `?ref=` and `?referral=` query parameters.
+ *
+ * Returns null when the URL carries no code, so callers can tell "no invite" from
+ * "empty invite".
+ */
+export function referralCodeFromUrl(rawUrl: string): string | null {
+  if (!rawUrl) return null;
+
+  // Query parameters first — cheap and unambiguous.
+  try {
+    const url = new URL(rawUrl, 'https://placeholder.invalid');
+    const fromQuery = url.searchParams.get('ref') ?? url.searchParams.get('referral');
+    if (fromQuery) {
+      const clean = normaliseReferralCode(fromQuery);
+      if (clean) return clean;
+    }
+
+    // Path form: /join/CODE — the segment after `join`.
+    const match = url.pathname.match(/\/join\/([^/?#]+)/i);
+    if (match) {
+      const clean = normaliseReferralCode(decodeURIComponent(match[1]));
+      if (clean) return clean;
+    }
+  } catch {
+    // Not a parseable URL. Fall through to the regex, which still works on a
+    // bare path like "/join/ABCD".
+  }
+
+  const loose = rawUrl.match(/\/join\/([^/?#]+)/i);
+  return loose ? normaliseReferralCode(decodeURIComponent(loose[1])) || null : null;
 }
 
 /** Exposed for tests. */

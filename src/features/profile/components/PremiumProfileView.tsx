@@ -1,34 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useNearbyRuntime } from '../../../app/context/NearbyRuntimeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  MapPin, 
-  Star, 
-  Calendar, 
-  MessageSquare, 
-  UserPlus, 
-  UserCheck, 
-  Share2, 
-  Heart, 
-  MessageCircle, 
-  Plus, 
-  X, 
-  Settings, 
-  Sparkles, 
-  CheckCircle, 
-  Camera, 
-  Lock, 
-  Globe, 
-  LogOut, 
-  Briefcase, 
-  HeartHandshake, 
-  ShieldAlert, 
-  Upload, 
-  ExternalLink,
-  ChevronRight,
-  Info,
-  Users
-} from 'lucide-react';
+import { MapPin, Calendar, MessageSquare, UserPlus, UserCheck, Share2, Heart, MessageCircle, Plus, X, Settings, Sparkles, CheckCircle, Camera, ShieldAlert, Upload, ExternalLink, Info, Users } from 'lucide-react';
 import { Neighbor, Meetup, MeetupRating } from '../../../types';
 import { db } from '../../../firebase';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';

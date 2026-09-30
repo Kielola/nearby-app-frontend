@@ -1,7 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
-import { DirectMessage, Neighbor } from '../../../types';
-import { useState } from 'react';
-
 /**
  * Chat room interaction state
  *
@@ -15,6 +11,9 @@ import { useState } from 'react';
  * it keeps growing, split the hook instead. Widen it only when a value is
  * genuinely shared state that this domain owns part of.
  */
+import { DirectMessage, Neighbor } from '../../../types';
+import { useState } from 'react';
+
 export interface UseChatRoomStateDeps {
 
 }

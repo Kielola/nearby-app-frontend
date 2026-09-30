@@ -1,4 +1,4 @@
-import { db, setDocument } from '../../../services/firebase';
+import { db } from '../../../services/firebase';
 import { DirectMessage } from '../../../types';
 import { collection, query, where, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { auth } from '../../../firebase';

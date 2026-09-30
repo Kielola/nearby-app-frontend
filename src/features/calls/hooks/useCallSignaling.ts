@@ -4,11 +4,7 @@ import { CALLS_ENABLED, showCallComingSoon } from '../callAvailability';
 import { CallState, DirectMessage, Neighbor } from '../../../types';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ApiUser } from '../../../lib/api/types';
-import {
-  describeIceConfiguration,
-  getIceServers,
-  getRelayOnlyIceServers,
-} from '../iceServers';
+import { describeIceConfiguration, getIceServers } from '../iceServers';
 
 interface UseCallSignalingParams {
   currentUser: FirebaseUser | null;

@@ -1,41 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Compass, 
-  MapPin, 
-  Heart, 
-  MessageSquare, 
-  Share2, 
-  Bookmark, 
-  Plus, 
-  X, 
-  Sparkles, 
-  Users, 
-  ShieldAlert, 
-  EyeOff, 
-  Check, 
-  Clock, 
-  Flame, 
-  CheckCheck,
-  Send,
-  SlidersHorizontal,
-  ChevronRight,
-  Filter,
-  Megaphone,
-  Calendar,
-  AlertTriangle,
-  Info
-} from 'lucide-react';
-import { db, auth, collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, deleteDoc, uploadToStorage } from '../../../firebase';
 // Notifications go through the backend, like every other writer in the app.
 // This file used to import the Firestore copy from '../../../firebase', which
 // wrote to a `/notifications` collection the backend no longer reads — so the
 // notification was created and then never seen by anyone. One writer, one
 // source of truth.
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Compass, MapPin, MessageSquare, Bookmark, Plus, X, Sparkles, ShieldAlert, Check, CheckCheck, SlidersHorizontal, Filter } from 'lucide-react';
+import { db, auth, collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, deleteDoc, uploadToStorage } from '../../../firebase';
 import { createNotification } from '../../notifications/services/createNotification';
 import { Neighbor } from '../../../types';
 import { aiApi } from '../../../lib/api';
-import { useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { useMapsLibrary } from '@vis.gl/react-google-maps';
 
 interface Post {
   id: string;

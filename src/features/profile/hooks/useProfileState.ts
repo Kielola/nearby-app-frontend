@@ -1,6 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
-import { useState } from 'react';
-
 /**
  * The signed-in user's profile fields
  *
@@ -13,7 +10,6 @@ import { useState } from 'react';
  * the compiler enforces it. Do not widen this to avoid splitting a concern — if
  * it keeps growing, split the hook instead. Widen it only when a value is
  * genuinely shared state that this domain owns part of.
-
 /**
  * The profile the app starts from on a cold load.
  *
@@ -22,6 +18,9 @@ import { useState } from 'react';
  * placeholders that then flicker into real values. It lives here rather than in
  * the controller because seeding this state is the only thing it is for.
  */
+import type from 'react';
+import { useState } from 'react';
+
 export const initialProfile = (() => {
   try {
     const lastUid = localStorage.getItem('nearby_current_uid');

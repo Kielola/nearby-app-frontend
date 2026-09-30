@@ -1,10 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
-import { browserLocalPersistence, setPersistence } from 'firebase/auth';
-import { auth, createUserWithEmailAndPassword, db, doc, signInWithEmailAndPassword, signOut } from '../../../firebase';
-import { sendVerificationEmail } from '../services/emailVerification';
-import { INITIAL_MESSAGES, INITIAL_NOTES } from '../../../mockData';
-import { loadLocalAccountsFromDisk } from '../services/savedAccounts';
-
 /**
  * Authentication and onboarding
  *
@@ -17,6 +10,14 @@ import { loadLocalAccountsFromDisk } from '../services/savedAccounts';
  * the compiler enforces it. Do not widen this to avoid splitting a concern —
  * if it keeps growing, split the hook instead.
  */
+import { saveSignupProfile } from '../services/saveSignupProfile';
+import { getSignupProfile } from '../signupProfile';
+import type, { Dispatch, SetStateAction } from 'react';
+import { auth, createUserWithEmailAndPassword, db, doc, signInWithEmailAndPassword, signOut } from '../../../firebase';
+import { sendVerificationEmail } from '../services/emailVerification';
+import { INITIAL_MESSAGES, INITIAL_NOTES } from '../../../mockData';
+import { loadLocalAccountsFromDisk } from '../services/savedAccounts';
+
 export interface UseAuthActionsDeps {
   _setChatMessages: any;
   activeNotes: any;
@@ -219,6 +220,12 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
           if (pass !== confirmPass) {
             throw new Error("Passwords do not match.");
           }
+          // A name is required and this is the only place it is enforced.
+          // Everyone else on the radar is shown a name; an account without one
+          // reads as a glitch, and there is no later screen that would insist.
+          if (!getSignupProfile().displayName.trim()) {
+            throw new Error("Please enter your name.");
+          }
         }
 
         let finalEmail = input;
@@ -239,6 +246,13 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
           setAudioFeedback("Registering...");
           const credential = await createUserWithEmailAndPassword(auth, finalEmail, pass);
           setAudioFeedback("Account created.");
+
+          // Save the registration answers the moment the account exists — the
+          // session is live here, which it was not a line ago. Awaited so the
+          // profile is populated before the user reaches the app, but its result
+          // is deliberately not surfaced: registration has already succeeded, and
+          // an error about an unsaved age would read as a failed sign-up.
+          await saveSignupProfile();
 
           // Send the verification link while we still have the freshly created
           // user in hand.

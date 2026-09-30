@@ -1,140 +1,23 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
-import { APIProvider, Map, AdvancedMarker, Pin as GMapPin, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import GoogleMapIntegration from '../../features/maps/components/GoogleMapIntegration';
-import { OnboardingScreen } from '../../features/authentication/components/OnboardingScreen';
-import { CallOverlay } from '../../features/calls/components/CallOverlay';
 import { useAuthFormState } from '../../features/authentication/hooks/useAuthFormState';
 import TermsConsentScreen from '../../features/legal/components/TermsConsentScreen';
 import { markPendingTermsAcceptance } from '../../features/legal/pendingAcceptance';
 import { TERMS_VERSION } from '../../features/legal/content/termsOfService';
-import {
-  MapPin,
-  Instagram,
-  Music,
-  MessageCircle,
-  Camera,
-  User,
-  Phone,
-  Video as VideoIcon,
-  PhoneOff,
-  Mic,
-  MicOff,
-  Send,
-  Upload,
-  Radio,
-  Navigation,
-  Compass,
-  Radar,
-  Heart,
-  Palette,
-  Check,
-  CheckCheck,
-  ChevronRight,
-  ChevronLeft,
-  Eye,
-  EyeOff,
-  Mail,
-  Plus,
-  X,
-  Play,
-  RotateCcw,
-  Search,
-  Sliders,
-  Sparkles,
-  Volume2,
-  Tv,
-  Smile,
-  Info,
-  Sun,
-  Moon,
-  UserPlus,
-  Settings,
-  Menu,
-  Grid,
-  Key,
-  Lock,
-  Bell,
-  Globe,
-  Link,
-  Share2,
-  HelpCircle,
-  Shield,
-  ShieldAlert,
-  CheckCircle2,
-  LogOut,
-  Image as ImageIcon,
-  Home,
-  Users,
-  Paperclip,
-  FileText,
-  Download,
-  Crown,
-  SlidersHorizontal,
-  Reply,
-  Trash2,
-  Pin,
-  Archive,
-  ArrowLeft,
-  MessageSquare,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-  Signal,
-  VolumeX,
-  MoreVertical,
-  MoreHorizontal,
-  Bluetooth,
-  Star
-} from 'lucide-react';
-import { Neighbor, DirectMessage, CallState, StorySnap, PublicSnap, Meetup, MeetupRating } from '../../types';
-import { NEIGHBORHOODS, NIGERIAN_STATES, INITIAL_NEIGHBORS, INITIAL_MESSAGES, LocationPreset, INITIAL_NOTES, UserNote } from '../../mockData';
-import { getStateStreets } from '../../utils';
-import {
-  auth,
-  db,
-  handleFirestoreError,
-  OperationType,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  where,
-  arrayUnion,
-  arrayRemove,
-  getDocFromServer,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  uploadToStorage,
-  createNotification,
-  markNotificationsAsRead,
-  AppNotification
-} from '../../firebase';
-import {
-  User as FirebaseUser,
-  sendPasswordResetEmail,
-  sendEmailVerification
-} from 'firebase/auth';
-import ExploreTab from '../../features/explore/components/ExploreTab';
-import { PremiumChatRoom } from '../../features/chat/components/PremiumChatRoom';
-import { PremiumProfileView } from '../../features/profile/components/PremiumProfileView';
+import { MapPin, User, Send, Radar, Check, ChevronRight, ChevronLeft, Eye, EyeOff, Mail, UserPlus, Lock, Link, Shield, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Neighbor, Meetup } from '../../types';
+import { auth, GoogleAuthProvider } from '../../firebase';
+import { sendEmailVerification } from 'firebase/auth';
 import { useNearbyRuntime } from '../context/NearbyRuntimeContext';
-import {
-  readPendingReferralCode,
-  writePendingReferralCode,
-  normaliseReferralCode,
-} from '../../features/referrals/pendingCode';
+import { readPendingReferralCode, writePendingReferralCode, normaliseReferralCode } from '../../features/referrals/pendingCode';
+import { useSignupProfile, setSignupProfile, INTEREST_OPTIONS } from '../../features/authentication/signupProfile';
+import { NEIGHBORHOODS } from '../../mockData';
 
 export default function AuthGate() {
+  // What the user typed at registration. Held in a module store rather than local
+  // state so it survives account creation and the verification step that follows.
+  const signup = useSignupProfile();
+
   const {
   showLandingMode,
   setShowLandingMode,
@@ -751,6 +634,112 @@ const [referralCode, setReferralCode] = useState<string>(() => readPendingReferr
                         >
                           {showConfirmPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
                         </button>
+                      </div>
+                    )}
+
+                    {/* Registration profile fields (Signup only).
+                        These were previously collected nowhere, so every new account
+                        landed on an empty profile and the radar filled with people who
+                        had no name and nothing in common to match on. Asking here is
+                        the only moment a user is guaranteed to be looking at their own
+                        profile.
+
+                        Name is required — it is what neighbours see. Everything else is
+                        optional and genuinely skippable: a user who does not want to
+                        give an age can still register. We ask; we do not demand. */}
+                    {authScreenState === 'signup' && (
+                      <div className="space-y-3">
+                        <div className="relative flex items-center rounded-[18px] border border-neutral-200 bg-white/70 backdrop-blur-sm shadow-sm transition-all duration-200 focus-within:border-[#0F8A5F] focus-within:ring-2 focus-within:ring-[#0F8A5F]/10 h-[58px] group">
+                          <div className="absolute left-[18px] text-neutral-400 group-focus-within:text-[#0F8A5F] transition-colors">
+                            <User className="w-[18px] h-[18px]" />
+                          </div>
+                          <input
+                            type="text"
+                            value={signup.displayName}
+                            onChange={(e) => setSignupProfile({ displayName: e.target.value })}
+                            placeholder="Your name"
+                            className="w-full pl-[48px] pr-[18px] h-full bg-transparent text-[15px] font-medium text-[#161616] placeholder-[#9CA3AF] focus:outline-none font-sans"
+                            autoComplete="name"
+                            aria-label="Your name"
+                          />
+                        </div>
+
+                        <div className="flex gap-3">
+                          <div className="relative flex items-center rounded-[18px] border border-neutral-200 bg-white/70 backdrop-blur-sm shadow-sm transition-all duration-200 focus-within:border-[#0F8A5F] focus-within:ring-2 focus-within:ring-[#0F8A5F]/10 h-[58px] group w-[110px] shrink-0">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={13}
+                              max={120}
+                              value={signup.age ?? ''}
+                              onChange={(e) => {
+                                // An empty box is "no answer", not zero. Storing 0
+                                // would put a newborn on the radar.
+                                const raw = e.target.value.trim();
+                                setSignupProfile({ age: raw === '' ? null : Number(raw) });
+                              }}
+                              placeholder="Age"
+                              className="w-full px-[18px] h-full bg-transparent text-[15px] font-medium text-[#161616] placeholder-[#9CA3AF] focus:outline-none font-sans"
+                              aria-label="Age (optional)"
+                            />
+                          </div>
+
+                          <div className="relative flex items-center rounded-[18px] border border-neutral-200 bg-white/70 backdrop-blur-sm shadow-sm transition-all duration-200 focus-within:border-[#0F8A5F] focus-within:ring-2 focus-within:ring-[#0F8A5F]/10 h-[58px] group flex-1 min-w-0">
+                            <div className="absolute left-[18px] text-neutral-400 group-focus-within:text-[#0F8A5F] transition-colors pointer-events-none">
+                              <MapPin className="w-[18px] h-[18px]" />
+                            </div>
+                            <select
+                              value={signup.streetName}
+                              onChange={(e) => setSignupProfile({ streetName: e.target.value })}
+                              className="w-full pl-[48px] pr-[14px] h-full bg-transparent text-[15px] font-medium text-[#161616] focus:outline-none font-sans cursor-pointer appearance-none"
+                              aria-label="Your area (optional)"
+                            >
+                              <option value="">Your area — pick one</option>
+                              {NEIGHBORHOODS.map((area) => {
+                                const label = `${area.name}, ${area.city}`;
+                                return (
+                                  <option key={label} value={label}>
+                                    {label}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <ChevronRight className="absolute right-[14px] w-4 h-4 text-neutral-400 rotate-90 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="px-1 text-[11.5px] leading-snug text-neutral-500 font-medium">
+                            What are you into? <span className="text-neutral-400">(optional — helps you find your people)</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2 px-0.5">
+                            {INTEREST_OPTIONS.map((interest) => {
+                              const chosen = signup.interests.includes(interest);
+                              return (
+                                <button
+                                  key={interest}
+                                  type="button"
+                                  onClick={() => {
+                                    triggerBeep(520, 0.04);
+                                    setSignupProfile({
+                                      interests: chosen
+                                        ? signup.interests.filter((i) => i !== interest)
+                                        : [...signup.interests, interest],
+                                    });
+                                  }}
+                                  aria-pressed={chosen}
+                                  className={`px-3 h-[34px] rounded-full text-[12.5px] font-semibold transition-all duration-150 border cursor-pointer ${
+                                    chosen
+                                      ? 'bg-[#0F8A5F] border-[#0F8A5F] text-white shadow-[0_2px_8px_rgba(15,138,95,0.25)]'
+                                      : 'bg-white/70 border-neutral-200 text-[#4B5563] hover:border-[#0F8A5F]/40'
+                                  }`}
+                                >
+                                  {interest}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     )}
 
