@@ -40,10 +40,20 @@ export default function ReferralOverviewPanel({
   };
 
   const share = async () => {
+    // The link is in the MESSAGE ONLY, deliberately — it is not also passed as the
+    // separate `url` field.
+    //
+    // Passing both duplicated it: WhatsApp and most other share targets append their
+    // `url` argument after the text, so the recipient got the link twice, once inside
+    // the sentence and once on its own line below it. The app looked broken at the
+    // exact moment someone was trying to invite a friend.
+    //
+    // Keeping it in the text is the reliable half of the two. A target that ignores
+    // `url` still sends a working link; a target that honours both would double it.
     const text = `Join me on Nearby — the app that shows who's around you. Use my code ${profile.referralCode} or this link: ${profile.referralLink}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Join Nearby', text, url: profile.referralLink });
+        await navigator.share({ title: 'Join Nearby', text });
         return;
       }
       await copy(text, 'link');

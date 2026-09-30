@@ -155,5 +155,41 @@ export function referralCodeFromUrl(rawUrl: string): string | null {
   return loose ? normaliseReferralCode(decodeURIComponent(loose[1])) || null : null;
 }
 
+/**
+ * The invite code for THIS page load, from the URL or from storage.
+ *
+ * ## Why this exists, and why reading storage alone was broken
+ *
+ * The code reaches storage from a `useEffect` inside `ReferralCapture`, and
+ * effects run AFTER the render that mounts them. The decision about which auth
+ * screen to open is made DURING that first render, by a `useState` initialiser in
+ * the root controller.
+ *
+ * So on the very first render — the only render that matters for "which screen do
+ * I open on" — storage is still empty. Reading only storage therefore always
+ * answered "no invite", the app opened on log-in, and the invitation code got
+ * written a moment later and quietly pre-filled the field.
+ *
+ * The result was the worst kind of half-working: the code was visibly there in the
+ * box, so the feature looked like it was working, while the user was still shown a
+ * log-in form for an account they did not have yet.
+ *
+ * Reading the URL directly as well removes the dependency on when an effect has
+ * run. Storage is still checked first, because a code captured earlier and then
+ * refreshed away should survive.
+ */
+export function currentReferralCode(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  const stored = readPendingReferralCode();
+  if (stored) return stored;
+
+  try {
+    return referralCodeFromUrl(window.location.href);
+  } catch {
+    return null;
+  }
+}
+
 /** Exposed for tests. */
 export const REFERRAL_STORAGE_KEY = STORAGE_KEY;

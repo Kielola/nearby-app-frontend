@@ -1,4 +1,4 @@
-import { readPendingReferralCode } from '../../../features/referrals/pendingCode';
+import { arrivedViaInvite } from '../../../features/authentication/authEntry';
 import { consumeVerificationReturn } from '../../../features/authentication/verificationReturn';
 /**
  * Modal, drawer and panel visibility flags
@@ -55,7 +55,9 @@ export function useUiFlags(deps: UseUiFlagsDeps) {
      * sign-up was not enough on its own, because this flag gates whether the auth
      * screens render at all.
      */
-    const arrivedViaInvite = Boolean(readPendingReferralCode());
+    // Read from the URL as well as storage. Storage is written by an effect that has
+    // not run yet during this initialiser — see authEntry.ts.
+    const arrivedViaInviteNow = arrivedViaInvite();
 
     // Just back from the verification email — they tapped "continue" and Firebase
     // sent them here. They can now sign in, so show them sign-in. The marketing
@@ -63,7 +65,7 @@ export function useUiFlags(deps: UseUiFlagsDeps) {
     const arrivedFromVerification = consumeVerificationReturn();
 
     const [showLandingMode, setShowLandingMode] = useState<boolean>(
-      !hasSavedAccountOnDisk && !arrivedViaInvite && !arrivedFromVerification,
+      !hasSavedAccountOnDisk && !arrivedViaInviteNow && !arrivedFromVerification,
     );
 
   // ── moved from src/app/hooks/useNearbyController.ts lines 366-373 ──

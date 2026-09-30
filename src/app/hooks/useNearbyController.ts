@@ -70,7 +70,7 @@ import { useChatRoomState } from '../../features/chat/hooks/useChatRoomState';
 import { useCameraState } from '../../features/camera/hooks/useCameraState';
 import { useStoryState } from '../../features/stories/hooks/useStoryState';
 
-import { readPendingReferralCode } from '../../features/referrals/pendingCode';
+import { authEntryScreen, syncAuthRoute, type AuthScreen } from '../../features/authentication/authEntry';
 const GOOGLE_MAPS_API_KEY =
   (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ||
   (typeof process !== 'undefined' ? process.env?.GOOGLE_MAPS_PLATFORM_KEY : '') ||
@@ -490,10 +490,26 @@ const persistProfileToBackend = async (patch: Record<string, unknown>) => {
    *
    * Falls back to 'login' if storage is unreadable, which is the correct default
    * for a returning user.
+   *
+   * ## The bug this replaces
+   *
+   * This used to read storage: `readPendingReferralCode() ? 'signup' : 'login'`.
+   * The code reaches storage from an effect inside `ReferralCapture`, and effects
+   * run after the render that mounts them — so during this initialiser, which is
+   * the one render where the answer matters, storage was still empty. The app
+   * concluded "no invite", opened on log-in, and the code was written moments later
+   * and pre-filled the field. Invited users saw a log-in form for an account they
+   * did not have, with their invitation code helpfully filled in. See authEntry.ts.
    */
-  const [authScreenState, setAuthScreenState] = useState<
-    'login' | 'signup' | 'forgot' | 'verification'
-  >(() => (readPendingReferralCode() ? 'signup' : 'login'));
+  const [authScreenState, setAuthScreenStateRaw] = useState<AuthScreen>(() => authEntryScreen());
+
+  // Keep the address bar in step, so /signup and /login are real destinations that
+  // survive a refresh. replaceState, not pushState — back should leave the auth
+  // flow, not step backwards through its screens.
+  const setAuthScreenState = (next: AuthScreen) => {
+    setAuthScreenStateRaw(next);
+    syncAuthRoute(next);
+  };
   const [authSuccess, setAuthSuccess] = useState<string>('');
 
   useEffect(() => {

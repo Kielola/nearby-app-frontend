@@ -283,32 +283,50 @@ async function loadModule(win: any) {
 
 // ── 8. Following an invite must actually land on the sign-up form ───────────
 //
-// This was genuinely broken. Two separate things had to be true for `?ref=` to
-// work, and only one of them was:
+// This was broken TWICE, in two different ways, and the second fix is the one
+// that mattered.
 //
-//   1. the auth screen has to be 'signup'          — was 'login'
-//   2. the landing screen must not hide the form   — was hiding it
+//   Attempt 1: the auth screen was hard-coded to 'login'. Fixed by seeding it from
+//   the referral store.
 //
-// Setting only the first left the visitor on a landing screen with a valid code
-// in storage, never shown the form the code belonged to.
+//   Attempt 2 (still broken): that seed read localStorage, but the code is written
+//   to localStorage by an EFFECT, and effects run after the render that mounts
+//   them. So during the initialiser — the one render where the answer matters —
+//   storage was always empty. The app opened on log-in and the code appeared in the
+//   field a moment later, which made the feature look like it was working.
+//
+// The screen is now decided from the URL, which is present on the first render.
+// See tests/auth-entry.test.ts for the behaviour itself.
 {
   const controller = read('src/app/hooks/useNearbyController.ts');
   const flags = read('src/features/settings/hooks/useUiFlags.ts');
 
+  // Strip comments before asserting. Checking raw source produced a FALSE PASS
+  // here: the controller's own note explains that it "used to read storage:
+  // `readPendingReferralCode() ? 'signup' : 'login'`", and the old assertion
+  // matched that sentence while the code had already changed.
+  const controllerCode = controller.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const flagsCode = flags.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
   check(
-    'the auth screen opens on sign-up when an invite code is present',
-    /readPendingReferralCode\(\) \? 'signup' : 'login'/.test(controller),
-    "an invited visitor is shown a log-in form for an account they cannot have",
+    'the auth screen is decided from the URL, not from storage',
+    /useState<AuthScreen>\(\(\) => authEntryScreen\(\)\)/.test(controllerCode),
+    "storage is empty during the initialiser, so an invited visitor was shown a log-in form",
+  );
+  check(
+    'it no longer decides from storage',
+    !/readPendingReferralCode/.test(controllerCode),
+    'reading storage here is the bug that survived the first fix',
   );
   check(
     'an invited visitor skips the landing screen',
-    /readPendingReferralCode/.test(flags) && /!hasSavedAccountOnDisk && !arrivedViaInvite/.test(flags),
+    /arrivedViaInvite\(\)/.test(flagsCode) && /!arrivedViaInviteNow/.test(flagsCode),
     'the landing screen gates whether auth screens render at all, so the sign-up form would stay hidden',
   );
   check(
-    'the sign-up field is seeded from the same store',
-    /useState<string>\(\(\) => readPendingReferralCode\(\) \?\? ''\)/.test(read('src/app/components/AuthGate.tsx')),
-    'the field would render empty even with a valid code in storage',
+    'the sign-up field is still seeded when the form renders',
+    /readPendingReferralCode/.test(read('src/app/components/AuthGate.tsx')),
+    'the field would render empty even with a valid code',
   );
 }
 
