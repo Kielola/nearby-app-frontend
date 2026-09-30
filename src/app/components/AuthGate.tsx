@@ -128,6 +128,11 @@ import ExploreTab from '../../features/explore/components/ExploreTab';
 import { PremiumChatRoom } from '../../features/chat/components/PremiumChatRoom';
 import { PremiumProfileView } from '../../features/profile/components/PremiumProfileView';
 import { useNearbyRuntime } from '../context/NearbyRuntimeContext';
+import {
+  readPendingReferralCode,
+  writePendingReferralCode,
+  normaliseReferralCode,
+} from '../../features/referrals/pendingCode';
 
 export default function AuthGate() {
   const {
@@ -154,7 +159,6 @@ export default function AuthGate() {
   setAuthError,
   savedAccounts,
   handleSendResetLink,
-  loginWithGoogle,
   loginWithEmailOrPhone,
   triggerBeep,
 } = useNearbyRuntime();
@@ -180,6 +184,17 @@ const {
 // the consent screen is still in the way.
 const [signupTermsAgreed, setSignupTermsAgreed] = useState(false);
 const [showTermsGate, setShowTermsGate] = useState(false);
+
+// The referral code shown in the sign-up field.
+//
+// Seeded from the shared store, so someone who arrived on ?ref=CODE sees their
+// inviter's code already filled in and can simply not touch it. They can also
+// clear it, or paste a different one — the field is authoritative for whatever
+// it currently holds, because that is what a visible, editable field means.
+//
+// Writes go straight back to the store on every keystroke, so the attribution
+// path needs no plumbing through this component.
+const [referralCode, setReferralCode] = useState<string>(() => readPendingReferralCode() ?? '');
 
     // Rendered before the main auth UI so it cannot be skipped or dismissed by
   // navigating within the form.
@@ -614,7 +629,11 @@ const [showTermsGate, setShowTermsGate] = useState(false);
                             setAuthLoading(true);
                             try {
                               if (acc.authType === 'google') {
-                                await loginWithGoogle();
+                                // Google sign-in has been removed. Accounts created
+                                // that way hold no password credential, so this saved
+                                // entry cannot be reused — send the user to the one
+                                // route that still works rather than failing obscurely.
+                                setAuthError("This account was created with Google. Google sign-in is no longer available, so please use \"Forgot Password?\" to set a password and continue with email.");
                               } else if (acc.emailOrPhone && acc.password) {
                                 setAuthEmailOrPhone(acc.emailOrPhone);
                                 setAuthPassword(acc.password);
@@ -649,7 +668,7 @@ const [showTermsGate, setShowTermsGate] = useState(false);
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <span className="text-[10px] bg-neutral-100 border border-neutral-200/50 px-2.5 py-0.5 rounded-full text-neutral-500 font-medium">{acc.authType === 'google' ? 'Google' : 'Password'}</span>
+                            <span className="text-[10px] bg-neutral-100 border border-neutral-200/50 px-2.5 py-0.5 rounded-full text-neutral-500 font-medium">{acc.authType === 'google' ? 'Google — unavailable' : 'Password'}</span>
                             <span className="text-sm font-bold text-[#0F8A5F] group-hover:translate-x-1 transition-all">❯</span>
                           </div>
                         </button>
@@ -732,6 +751,41 @@ const [showTermsGate, setShowTermsGate] = useState(false);
                         >
                           {showConfirmPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
                         </button>
+                      </div>
+                    )}
+
+                    {/* Referral code (Signup only).
+                        Pre-filled from the invite link and fully editable, so a
+                        user who was told a code out loud can type it, and one who
+                        has no code can leave it empty and still register. */}
+                    {authScreenState === 'signup' && (
+                      <div className="space-y-1.5">
+                        <div className="relative flex items-center rounded-[18px] border border-neutral-200 bg-white/70 backdrop-blur-sm shadow-sm transition-all duration-200 focus-within:border-[#0F8A5F] focus-within:ring-2 focus-within:ring-[#0F8A5F]/10 h-[58px] group">
+                          <div className="absolute left-[18px] text-neutral-400 group-focus-within:text-[#0F8A5F] transition-colors">
+                            <UserPlus className="w-[18px] h-[18px]" />
+                          </div>
+                          <input
+                            type="text"
+                            value={referralCode}
+                            onChange={(e) => {
+                              const clean = normaliseReferralCode(e.target.value);
+                              setReferralCode(clean);
+                              writePendingReferralCode(clean);
+                            }}
+                            placeholder="Referral code (optional)"
+                            className="w-full pl-[48px] pr-[18px] h-full bg-transparent text-[15px] font-medium text-[#161616] placeholder-[#9CA3AF] focus:outline-none font-sans uppercase tracking-wide"
+                            autoComplete="off"
+                            autoCapitalize="characters"
+                            spellCheck={false}
+                            inputMode="text"
+                            aria-label="Referral code"
+                          />
+                        </div>
+                        {referralCode && (
+                          <p className="px-1 text-[11.5px] leading-snug text-[#0F8A5F] font-medium">
+                            You'll be credited to the member who invited you.
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -903,36 +957,17 @@ const [showTermsGate, setShowTermsGate] = useState(false);
                   </motion.div>
                 )}
 
-                {/* Google Login & Divider */}
-                {(authScreenState === 'login' || authScreenState === 'signup') && (
-                  <div className="w-full">
-                    {/* Divider */}
-                    <div className="relative my-6 flex items-center justify-center w-full">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-neutral-200"></div>
-                      </div>
-                      <span className="relative px-4 bg-[#F8F9FB] text-[12px] font-mono tracking-widest text-[#9CA3AF] uppercase">
-                        Or
-                      </span>
-                    </div>
-
-                    {/* Google Button */}
-                    <motion.button
-                      whileTap={{ scale: 0.98 }}
-                      onClick={loginWithGoogle}
-                      className="w-full h-[58px] bg-white border border-neutral-200/80 rounded-[18px] text-[15px] font-semibold text-[#161616] shadow-sm hover:bg-[#FDFDFD] hover:shadow-md transition-all duration-200 flex items-center justify-center space-x-3 cursor-pointer"
-                      style={{ minHeight: '48px' }}
-                    >
-                      <svg className="w-5 h-5" viewBox="0 0 24 24">
-                        <path fill="#EA4335" d="M12 5.04c1.62 0 3.08.56 4.22 1.65l3.15-3.15C17.45 1.74 14.93 1 12 1 7.37 1 3.4 3.66 1.45 7.55l3.79 2.94C6.18 7.55 8.84 5.04 12 5.04z" />
-                        <path fill="#4285F4" d="M23.45 12.3c0-.82-.07-1.6-.21-2.3H12v4.4h6.42c-.28 1.44-1.1 2.66-2.33 3.48l3.61 2.8c2.11-1.95 3.32-4.83 3.32-8.38z" />
-                        <path fill="#FBBC05" d="M5.24 14.75c-.24-.72-.38-1.5-.38-2.3 0-.8.14-1.58.38-2.3L1.45 7.21C.52 9.07 0 11.17 0 13.4s.52 4.33 1.45 6.19l3.79-2.84z" />
-                        <path fill="#34A853" d="M12 23c3.24 0 5.97-1.08 7.96-2.92l-3.61-2.8c-1.1.74-2.5 1.18-4.35 1.18-3.16 0-5.82-2.51-6.76-5.45l-3.79 2.94C3.4 19.34 7.37 23 12 23z" />
-                      </svg>
-                      <span>Continue with Google</span>
-                    </motion.button>
-                  </div>
-                )}
+                {/* Google sign-in was removed deliberately.
+                    Auth is email + password only. Two reasons:
+                      1. Every sign-in now flows through one code path, so the
+                         referral attribution has exactly one place to hook into
+                         and one place to be wrong.
+                      2. It removes an entire class of "popup blocked", "redirect
+                         mismatch" and "unauthorized domain" support burden that
+                         console configuration could silently break.
+                    The Firebase GoogleAuthProvider wiring is gone too — see
+                    useAuthActions.ts. Do not re-add the button without re-adding
+                    that handler. */}
 
                 {/* Footer Switch Link */}
                 {authScreenState === 'login' && (

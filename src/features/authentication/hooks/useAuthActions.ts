@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { browserLocalPersistence, setPersistence, signInWithRedirect } from 'firebase/auth';
-import { GoogleAuthProvider, auth, createUserWithEmailAndPassword, db, doc, signInWithEmailAndPassword, signInWithPopup, signOut } from '../../../firebase';
+import { browserLocalPersistence, setPersistence } from 'firebase/auth';
+import { auth, createUserWithEmailAndPassword, db, doc, signInWithEmailAndPassword, signOut } from '../../../firebase';
+import { sendVerificationEmail } from '../services/emailVerification';
 import { INITIAL_MESSAGES, INITIAL_NOTES } from '../../../mockData';
 import { loadLocalAccountsFromDisk } from '../services/savedAccounts';
 
@@ -173,50 +174,17 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
     userTrustScore,
   } = deps;
 
-    const loginWithGoogle = async () => {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      setAuthError('');
-      setAuthLoading(true);
-      try {
-        triggerBeep(580, 0.1);
-        // Make persistence explicit before opening the OAuth flow. This prevents a
-        // successful Google credential from disappearing when the OAuth window/tab
-        // hands control back to the app on mobile Safari.
-        await setPersistence(auth, browserLocalPersistence);
-        const result = await signInWithPopup(auth, provider);
-        if (result?.user) {
-          setCurrentUser(result.user);
-          localStorage.setItem('nearby_current_uid', result.user.uid);
-          setShowLandingMode(false);
-        }
-        setAudioFeedback("Signed in with Google.");
-        setTimeout(() => setAudioFeedback(""), 2200);
-      } catch (err: any) {
-        console.error("Login failure: ", err);
-        const code = err?.code || '';
-        if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user' || code === 'auth/network-request-failed') {
-          try {
-            // Mobile browsers can complete Google OAuth more reliably with a full-page
-            // redirect. The result is consumed on app startup by the effect below.
-            localStorage.setItem('nearby_google_redirect_pending', '1');
-            await signInWithRedirect(auth, provider);
-            return;
-          } catch (redirectErr: any) {
-            err = redirectErr;
-          }
-        }
-
-        let errorMsg = err.message || "Failed to sign in with Google.";
-        if (err.code === 'auth/unauthorized-domain' || (err.message && err.message.includes('unauthorized-domain'))) {
-          errorMsg = `🔐 Firebase Domain Unauthorized!\n\nPlease add this domain ("${window.location.hostname}") to Firebase Console → Authentication → Settings → Authorized domains.`;
-        }
-        setAuthError(errorMsg);
-        setAuthLoading(false);
-        setAudioFeedback("Google sign-in failed.");
-        setTimeout(() => setAudioFeedback(""), 2500);
-      }
-    };
+    /* Google sign-in was removed.
+     *
+     * It duplicated the sign-up path with a second credential type, and it was
+     * the only reason this app needed an OAuth client allowlist, a popup-blocked
+     * fallback, and a redirect-resume handler — three console settings that could
+     * silently break sign-in for every user with no in-app symptom. Email and
+     * password alone cover the requirement, and keeping one auth path means the
+     * referral attribution has exactly one place to run.
+     *
+     * Existing Google-created accounts are handled in AuthGate's saved-accounts
+     * list, which routes them to a password reset. */
 
     const loginWithEmailOrPhone = async (
       emailOrPhoneRaw: string,
@@ -269,8 +237,19 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
 
         if (isSignUpOption) {
           setAudioFeedback("Registering...");
-          await createUserWithEmailAndPassword(auth, finalEmail, pass);
+          const credential = await createUserWithEmailAndPassword(auth, finalEmail, pass);
           setAudioFeedback("Account created.");
+
+          // Send the verification link while we still have the freshly created
+          // user in hand.
+          //
+          // Deliberately after the account exists and NOT blocking on failure: the
+          // account is already real at this point, and losing the verification mail
+          // must not roll that back or show an error to someone who has just
+          // successfully registered. The gate they land on has its own "send again"
+          // control, so a failure here is recoverable by the user. Phone
+          // registrations are skipped inside the service, which owns that rule.
+          void sendVerificationEmail(credential?.user ?? auth.currentUser).catch(() => undefined);
         } else {
           setAudioFeedback("Logging in...");
           await signInWithEmailAndPassword(auth, finalEmail, pass);
@@ -456,7 +435,6 @@ export function useAuthActions(deps: UseAuthActionsDeps) {
 
   return {
     loginWithEmailOrPhone,
-    loginWithGoogle,
     logoutUser,
     saveOnboardingDetails,
   };

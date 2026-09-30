@@ -1,12 +1,17 @@
-import { auth } from '../../../services/firebase';
-import { 
+import { auth } from '../../../firebase';
+import {
   signInWithEmailAndPassword as fSignInWithEmailAndPassword,
   createUserWithEmailAndPassword as fCreateUserWithEmailAndPassword,
   signOut as fSignOut,
-  GoogleAuthProvider,
-  signInWithPopup
 } from 'firebase/auth';
 
+/**
+ * The app's minimal email/password auth facade.
+ *
+ * Google sign-in was removed from this service deliberately — see the note in
+ * `hooks/useAuthActions.ts`. Anything that needs to authenticate goes through
+ * exactly these three calls, which is what keeps the sign-in surface auditable.
+ */
 export const authService = {
   getCurrentUser: () => auth.currentUser,
 
@@ -21,9 +26,4 @@ export const authService = {
   logout: async () => {
     return fSignOut(auth);
   },
-
-  loginWithGoogle: async () => {
-    const provider = new GoogleAuthProvider();
-    return signInWithPopup(auth, provider);
-  }
 };

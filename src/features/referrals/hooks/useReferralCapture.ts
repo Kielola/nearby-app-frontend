@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { logReferralClick, attributeReferral, qualifyReferral } from '../api';
-
-const STORAGE_KEY = 'nearby_referral_code';
+import {
+  readPendingReferralCode,
+  writePendingReferralCode,
+  subscribeToPendingReferralCode,
+} from '../pendingCode';
 
 /**
  * Reads `?ref=CODE` from the URL, remembers it, and attributes it once the
@@ -13,6 +16,17 @@ const STORAGE_KEY = 'nearby_referral_code';
  * have an account at all. The attribution has to survive the whole signup flow
  * (possibly a page reload, possibly a verification email), so the code goes into
  * `localStorage` first and is submitted only after an account exists.
+ *
+ * ## Where the code can come from
+ *
+ * Three places, all funnelled through `pendingCode.ts`:
+ *
+ *   - the invite link's `?ref=` parameter
+ *   - the legacy `?referral=` parameter
+ *   - the referral field on the sign-up form, typed or pasted by the user
+ *
+ * The hook subscribes to that store, so a code entered in the form reaches
+ * attribution without a reload. The form and the hook never talk directly.
  *
  * ## What the client is allowed to claim
  *
@@ -26,7 +40,8 @@ export function useReferralCapture(isSignedIn: boolean) {
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const attributedRef = useRef(false);
 
-  // Read the code out of the URL on mount. Runs once per page load.
+  // Read the code out of the URL on mount, then keep in step with the store.
+  // Runs once per page load for the URL part; the subscription covers later edits.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -36,8 +51,9 @@ export function useReferralCapture(isSignedIn: boolean) {
 
       if (fromUrl) {
         const clean = fromUrl.trim().toUpperCase();
-        window.localStorage.setItem(STORAGE_KEY, clean);
-        setPendingCode(clean);
+        // Writes through the shared store, which notifies the subscription
+        // below — so there is one code path into state, not two.
+        writePendingReferralCode(clean);
 
         // Fire-and-forget click tracking. Deliberately allowed to fail — a
         // visitor must never see an error because an analytics insert failed.
@@ -47,14 +63,14 @@ export function useReferralCapture(isSignedIn: boolean) {
         url.searchParams.delete('ref');
         url.searchParams.delete('referral');
         window.history.replaceState({}, '', url.toString());
-        return;
       }
-
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) setPendingCode(stored);
     } catch {
-      // Private-mode or blocked storage: attribution is simply skipped.
+      // Malformed URL or blocked storage: fall through to the store below.
     }
+
+    // Seed immediately, then follow every later change (form edits, other tabs).
+    setPendingCode(readPendingReferralCode());
+    return subscribeToPendingReferralCode(setPendingCode);
   }, []);
 
   /**
@@ -71,15 +87,12 @@ export function useReferralCapture(isSignedIn: boolean) {
 
     try {
       const result = await attributeReferral(pendingCode);
-      // Keep the code only if attribution genuinely did not happen for a reason
-      // that could change — otherwise clear it so it is never retried forever.
-      if (!result.attributed) {
-        window.localStorage.removeItem(STORAGE_KEY);
-        setPendingCode(null);
-        return;
-      }
-      window.localStorage.removeItem(STORAGE_KEY);
+      // Clear either way: a refusal means the code was bad, already used, or
+      // belonged to this same user, and none of those improve on a retry.
+      writePendingReferralCode(null);
       setPendingCode(null);
+
+      if (!result.attributed) return;
 
       // A brand-new referral is pending until this user qualifies. Try
       // immediately — onboarding may already be complete for a returning user —

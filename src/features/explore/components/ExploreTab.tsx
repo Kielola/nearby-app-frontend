@@ -165,27 +165,81 @@ const ExploreTab = React.memo(function ExploreTab({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // --- GOOGLE MAPS PLACES API MEETUP SYSTEM ---
+  /**
+   * A real, publicly accessible place.
+   *
+   * ## Why `rating` and `openNow` are nullable
+   *
+   * They used to be required, and the code that built spots filled the gaps with
+   * invented values: `rating: data.rating || 4.5`, `userRatingCount: 15`, and
+   * `openNow: 'Open Now'` unconditionally. The card then rendered them as
+   * "⭐ 4.5" and a green "🟢 Open Now" — presented to the user as facts about a
+   * particular venue, on the strength of nothing at all.
+   *
+   * Making them nullable forces every reader to decide what to do when the value
+   * is missing. The UI now shows the rating only when the places API actually
+   * returned one, and says "Hours unknown" rather than claiming the place is open.
+   * A missing value is honest; a default is a guess dressed as data.
+   *
+   * ## Why `sec` is gone
+   *
+   * It held a safety assurance derived purely from the venue's *category* —
+   * "Active Security & Bright Indoor Lighting" for any café, "24/7 CCTV & Mall
+   * Guards" for any shopping mall. Google Places does not report CCTV coverage.
+   * Those strings were never rendered anywhere, so removing them costs nothing and
+   * removes a fabricated safety guarantee from the codebase entirely.
+   *
+   * `userRatingCount` is likewise nullable: it was defaulted to 15/12 and used to
+   * order the list, so invented figures were silently deciding which venues a user
+   * saw first.
+   */
   interface MeetupSpot {
     id: string;
     name: string;
     desc: string;
     address: string;
     distanceMeters: number;
-    rating: number;
-    userRatingCount: number;
+    /** Null when the places API did not report one. Never defaulted. */
+    rating: number | null;
+    /** Null when unknown. Never defaulted. */
+    userRatingCount: number | null;
     type: string;
-    img: string;
+    img: string | null;
+    /** Null when unknown — shown as "Hours unknown", never assumed open. */
     openNow?: string | null;
     lat: number;
     lng: number;
-    sec: string;
   }
+
+
+  /**
+   * The venue's opening status, as a fact or not at all.
+   *
+   * The Places API exposes `currentOpeningHours.openNow`; when it is absent we
+   * return null rather than assuming. The card used to hardcode the string
+   * "Open Now" and paint it green for every venue, so a user could be sent to a
+   * closed venue — including a shop or library whose whole purpose as a meetup
+   * spot is being open and staffed when they arrive.
+   */
+  const openNowFor = (place: any): 'Open Now' | 'Closed' | null => {
+    const flag = place?.currentOpeningHours?.openNow;
+    if (flag === true) return 'Open Now';
+    if (flag === false) return 'Closed';
+    return null;
+  };
 
   const placesLib = useMapsLibrary('places');
   const [liveMeetupSpots, setLiveMeetupSpots] = useState<MeetupSpot[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
   const [placesApiError, setPlacesApiError] = useState<string | null>(null);
-  const [isFallbackMode, setIsFallbackMode] = useState<boolean>(false);
+  /**
+   * Why the places list is empty, or null when it is not.
+   *
+   * Replaced an `isFallbackMode` boolean that was written in four places and read
+   * in none — the app knew it was showing fallback data and never said so. A
+   * reason string forces the UI to have something honest to display.
+   */
+  const [placesUnavailableReason, setPlacesUnavailableReason] = useState<string | null>(null);
 
   const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
     const R = 6371000; // meters
@@ -198,125 +252,35 @@ const ExploreTab = React.memo(function ExploreTab({
     return R * c;
   };
 
-  const generateDynamicLocalMeetups = (center: { lat: number; lng: number }): MeetupSpot[] => {
-    const getStreetName = (index: number) => {
-      if (selectedPreset?.streets && selectedPreset.streets.length > 0) {
-        return selectedPreset.streets[index % selectedPreset.streets.length];
-      }
-      const fallbackStreets = ["Ahmadu Bello Way", "Airport Road", "Herbert Macaulay Way", "Murtala Mohammed Highway", "Marina Crescent", "Commercial Avenue", "Ziks Avenue", "Marian Road", "Azikiwe Road"];
-      return fallbackStreets[index % fallbackStreets.length];
-    };
-
-    const cityName = selectedPreset?.city || "Local Area";
-
-    const templates = [
-      {
-        id: 'fb-cafe-1',
-        name: `${getStreetName(0)} Cafe & Workspace`,
-        type: 'Café',
-        desc: 'Café near you. Active, highly visible public space with professional security.',
-        sec: '🛡️ Active Security & Bright Indoor Lighting',
-        rating: 4.8,
-        userRatingCount: 242,
-        img: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=400&auto=format&fit=crop',
-        latOffset: 0.0022,
-        lngOffset: -0.0018
-      },
-      {
-        id: 'fb-mall-1',
-        name: `${cityName} Central Plaza`,
-        type: 'Shopping Mall',
-        desc: 'Shopping Mall near you. Active, highly visible public space with mall security and CCTV.',
-        sec: '🛡️ 24/7 CCTV & Mall Guards',
-        rating: 4.6,
-        userRatingCount: 410,
-        img: 'https://images.unsplash.com/photo-1560684352-8497838a2229?w=400&auto=format&fit=crop',
-        latOffset: -0.0035,
-        lngOffset: 0.0028
-      },
-      {
-        id: 'fb-rest-1',
-        name: `${getStreetName(1)} Bistro & Grill`,
-        type: 'Restaurant',
-        desc: 'Restaurant near you. Active, highly visible public space with bright lighting.',
-        sec: '🛡️ Active Security & Bright Indoor Lighting',
-        rating: 4.5,
-        userRatingCount: 189,
-        img: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&auto=format&fit=crop',
-        latOffset: 0.0048,
-        lngOffset: 0.0051
-      },
-      {
-        id: 'fb-park-1',
-        name: `${cityName} Recreation Park`,
-        type: 'Public Park',
-        desc: 'Public Park near you. Active, highly visible public space with ranger patrols.',
-        sec: '🛡️ Community Presence & Ranger Patrols',
-        rating: 4.4,
-        userRatingCount: 95,
-        img: 'https://images.unsplash.com/photo-1549880338-65ddcdfd017b?w=400&auto=format&fit=crop',
-        latOffset: -0.0015,
-        lngOffset: -0.0042
-      },
-      {
-        id: 'fb-univ-1',
-        name: `${cityName} Campus Study Atrium`,
-        type: 'University',
-        desc: 'University space near you. Active, highly visible campus space with campus patrols.',
-        sec: '🛡️ Campus Patrols & Public Access',
-        rating: 4.3,
-        userRatingCount: 78,
-        img: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=400&auto=format&fit=crop',
-        latOffset: 0.0062,
-        lngOffset: -0.0035
-      },
-      {
-        id: 'fb-lib-1',
-        name: `${getStreetName(2)} Public Library`,
-        type: 'Library',
-        desc: 'Library space near you. Quiet, monitored, highly secure public study space.',
-        sec: '🛡️ Monitored Access & Public Security',
-        rating: 4.5,
-        userRatingCount: 156,
-        img: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?w=400&auto=format&fit=crop',
-        latOffset: -0.0052,
-        lngOffset: -0.0012
-      },
-      {
-        id: 'fb-comm-1',
-        name: `${getStreetName(3)} Community Civic Hall`,
-        type: 'Community Center',
-        desc: 'Community Center near you. Monitored public venue for local neighborhood gatherings.',
-        sec: '🛡️ Local Community Patrols & Support',
-        rating: 4.2,
-        userRatingCount: 43,
-        img: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=400&auto=format&fit=crop',
-        latOffset: 0.0011,
-        lngOffset: 0.0068
-      }
-    ];
-
-    return templates.map((t, idx) => {
-      const spotLat = center.lat + t.latOffset;
-      const spotLng = center.lng + t.lngOffset;
-      const distance = getDistance(center.lat, center.lng, spotLat, spotLng);
-      return {
-        id: t.id,
-        name: t.name,
-        desc: t.desc,
-        address: `${getStreetName(idx)}, ${cityName}`,
-        distanceMeters: Math.round(distance),
-        rating: t.rating,
-        userRatingCount: t.userRatingCount,
-        type: t.type,
-        img: t.img,
-        openNow: 'Open Now',
-        lat: spotLat,
-        lng: spotLng,
-        sec: t.sec
-      };
-    });
-  };
+  /**
+   * Never invent a venue. Returns nothing, deliberately.
+   *
+   * ## What used to be here
+   *
+   * This function *fabricated* places: it concatenated real street names with
+   * generic suffixes ("Ahmadu Bello Way Cafe & Workspace"), attached invented
+   * ratings (4.8) and invented review counts (242), pulled stock photos from
+   * Unsplash, and offset them a few hundred metres from the user's GPS position so
+   * they looked genuinely nearby.
+   *
+   * It attached **safety claims** to those invented places — "Active Security &
+   * Bright Indoor Lighting", "24/7 CCTV & Mall Guards".
+   *
+   * It ran whenever Google Places returned nothing or failed, which is the normal
+   * case without Places billing enabled. `isFallbackMode` was set in four places
+   * and read in none, so nothing told the user the list was fiction.
+   *
+   * A user could therefore be shown a reassuring, well-lit "Café & Workspace" with
+   * verified-looking security, at a real street address, that does not exist — and
+   * be encouraged to meet a stranger there. On a personal-safety feature that is
+   * the most dangerous thing this file could do.
+   *
+   * ## The rule
+   *
+   * A place in this list must come from a real data source. If we cannot get real
+   * places, we say so and show nothing. An empty screen beats a credible lie.
+   */
+  const noPlacesAvailable = (): MeetupSpot[] => [];
 
   // User's current live GPS coordinates obtained directly from the device
   const [liveGpsCoords, setLiveGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -453,20 +417,17 @@ const ExploreTab = React.memo(function ExploreTab({
                   desc: `${data.type || 'Public Spot'} near you. Active, highly visible public space.`,
                   address: data.address || 'Nearby Area',
                   distanceMeters: Math.round(distance),
-                  rating: data.rating || 4.5,
-                  userRatingCount: 15,
+                  // Pass through what the cache actually holds. No `|| 4.5`, no
+                  // `|| 15`, no `'Open Now'` — an absent value stays absent and the
+                  // card renders it as unknown.
+                  rating: typeof data.rating === 'number' ? data.rating : null,
+                  userRatingCount:
+                    typeof data.userRatingCount === 'number' ? data.userRatingCount : null,
                   type: data.type || 'Public Spot',
-                  img: data.photo || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop',
-                  openNow: 'Open Now',
+                  img: data.photo || null,
+                  openNow: data.openNow ?? null,
                   lat: data.latitude,
-                  lng: data.longitude,
-                  sec: data.type === 'Café' ? '🛡️ Active Security & Bright Indoor Lighting' :
-                       data.type === 'Shopping Mall' ? '🛡️ 24/7 CCTV & Mall Guards' :
-                       data.type === 'Public Park' ? '🛡️ Community Presence & Ranger Patrols' :
-                       data.type === 'University' || data.type === 'School' ? '🛡️ Campus Patrols & Public Access' :
-                       data.type === 'Library' ? '🛡️ Campus Patrols & Public Access' :
-                       data.type === 'Community Center' ? '🛡️ Local Community Patrols & Support' :
-                       '🛡️ Active Public Street Visibility'
+                  lng: data.longitude
                 });
               }
             }
@@ -478,19 +439,21 @@ const ExploreTab = React.memo(function ExploreTab({
           console.log(`Found ${cachedSpots.length} safe meetup spots cached in Firestore! Skipping Google Places API call.`);
           setLiveMeetupSpots(cachedSpots);
           setLoadingPlaces(false);
-          setIsFallbackMode(false);
+          setPlacesUnavailableReason(null);
           return;
         }
       } catch (e) {
         console.warn("Failed to load cached safe meetups from Firestore, falling back to Google Places API:", e);
       }
 
-      // 2. If placesLib is not ready, use dynamic fallback generator
+      // 2. If the places library has not loaded, we cannot ask for real venues.
       if (!placesLib) {
         if (active) {
-          const fallbackSpots = generateDynamicLocalMeetups(centerCoords);
-          setLiveMeetupSpots(fallbackSpots);
-          setIsFallbackMode(true);
+          // The map library never loaded, so we cannot ask for real places.
+          setLiveMeetupSpots(noPlacesAvailable());
+          setPlacesUnavailableReason(
+            'The map library did not load. Check your connection, then try again.',
+          );
           setLoadingPlaces(false);
         }
         return;
@@ -524,7 +487,10 @@ const ExploreTab = React.memo(function ExploreTab({
               'rating',
               'userRatingCount',
               'photos',
-              'types'
+              'types',
+              // Asked for so that "Open Now" can be a fact the API reported rather
+              // than a string this file writes unconditionally.
+              'currentOpeningHours.openNow',
             ],
             maxResultCount: 15
           }).then(({ places }) => places || [])
@@ -587,29 +553,21 @@ const ExploreTab = React.memo(function ExploreTab({
               const distance = getDistance(centerCoords.lat, centerCoords.lng, placeLat, placeLng);
 
               let readableType = 'Public Spot';
-              let secFeature = '🛡️ Active Public Street Visibility';
               
               if (placeTypes.includes('restaurant')) {
                 readableType = 'Restaurant';
-                secFeature = '🛡️ Active Security & Bright Indoor Lighting';
               } else if (placeTypes.includes('cafe')) {
                 readableType = 'Café';
-                secFeature = '🛡️ Active Security & Bright Indoor Lighting';
               } else if (placeTypes.includes('shopping_mall')) {
                 readableType = 'Shopping Mall';
-                secFeature = '🛡️ 24/7 CCTV & Mall Guards';
               } else if (placeTypes.includes('park')) {
                 readableType = 'Public Park';
-                secFeature = '🛡️ Community Presence & Ranger Patrols';
               } else if (placeTypes.includes('university') || placeTypes.includes('school')) {
                 readableType = 'University';
-                secFeature = '🛡️ Campus Patrols & Public Access';
               } else if (placeTypes.includes('library')) {
                 readableType = 'Library';
-                secFeature = '🛡️ Campus Patrols & Public Access';
               } else if (placeTypes.includes('community_center')) {
                 readableType = 'Community Center';
-                secFeature = '🛡️ Local Community Patrols & Support';
               }
 
               let imgUrl = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop';
@@ -619,23 +577,15 @@ const ExploreTab = React.memo(function ExploreTab({
                 } catch (e) {
                   console.warn('Error getting place photo URL:', e);
                 }
-              } else {
-                if (readableType === 'Café') {
-                  imgUrl = 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=400&auto=format&fit=crop';
-                } else if (readableType === 'Public Park') {
-                  imgUrl = 'https://images.unsplash.com/photo-1549880338-65ddcdfd017b?w=400&auto=format&fit=crop';
-                } else if (readableType === 'Restaurant') {
-                  imgUrl = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&auto=format&fit=crop';
-                } else if (readableType === 'Shopping Mall') {
-                  imgUrl = 'https://images.unsplash.com/photo-1560684352-8497838a2229?w=400&auto=format&fit=crop';
-                } else if (readableType === 'University') {
-                  imgUrl = 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=400&auto=format&fit=crop';
-                } else if (readableType === 'Library') {
-                  imgUrl = 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?w=400&auto=format&fit=crop';
-                } else if (readableType === 'Community Center') {
-                  imgUrl = 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=400&auto=format&fit=crop';
-                }
               }
+              // If Google had no photo for this venue, `imgUrl` stays null and the
+              // card shows a neutral placeholder.
+              //
+              // It used to fall back to a category-appropriate Unsplash photo. That
+              // put a picture of a *different* café on this café's card, captioned
+              // with this café's name and distance — a reader has no way to tell
+              // they are looking at stock imagery, and a photo is exactly what
+              // someone uses to decide a place looks safe to walk into.
 
               // Cache the spot in Firestore safeMeetups
               const parts = (place.formattedAddress || '').split(',').map(s => s.trim());
@@ -651,7 +601,10 @@ const ExploreTab = React.memo(function ExploreTab({
                   longitude: placeLng,
                   type: readableType,
                   address: place.formattedAddress || 'Nearby Area',
-                  rating: place.rating || 4.5,
+                  // Store what the API returned. Caching an invented 4.5 here is
+                  // how a fabricated number becomes permanent: the cache is read
+                  // back as "real" on every later visit.
+                  rating: place.rating ?? null,
                   photo: imgUrl,
                   city,
                   state,
@@ -667,14 +620,16 @@ const ExploreTab = React.memo(function ExploreTab({
                 desc: `${readableType} near you. Active, highly visible public space.`,
                 address: place.formattedAddress || 'Nearby Area',
                 distanceMeters: Math.round(distance),
-                rating: place.rating || 4.5,
-                userRatingCount: place.userRatingCount || 12,
+                // `?? null`, never `|| 4.5`. A venue with no rating has no rating.
+                rating: place.rating ?? null,
+                userRatingCount: place.userRatingCount ?? null,
                 type: readableType,
                 img: imgUrl,
-                openNow: 'Open Now',
+                // Resolved to a real boolean or null — see the render, which says
+                // "Hours unknown" instead of assuming the place is open.
+                openNow: openNowFor(place),
                 lat: placeLat,
                 lng: placeLng,
-                sec: secFeature
               });
             }
           }
@@ -684,10 +639,12 @@ const ExploreTab = React.memo(function ExploreTab({
         const validSpots = spots.filter(spot => spot.distanceMeters <= feedDistance);
 
         if (spots.length === 0) {
-          console.log("No spots returned from Google Places API. Triggering dynamic safe meetup fallback generator.");
-          const fallbackSpots = generateDynamicLocalMeetups(centerCoords);
-          setLiveMeetupSpots(fallbackSpots);
-          setIsFallbackMode(true);
+          // Google answered, and genuinely knows of no public place here. That is
+          // a real answer and we report it as one.
+          setLiveMeetupSpots(noPlacesAvailable());
+          setPlacesUnavailableReason(
+            'No public places found near you yet. Try widening your distance in Settings.',
+          );
         } else if (validSpots.length === 0) {
           console.warn("Google returned places, but they are all too distant from current GPS coords!");
           setLiveMeetupSpots([]);
@@ -698,13 +655,14 @@ const ExploreTab = React.memo(function ExploreTab({
         } else {
           placesRetryCount.current = 0;
           setLiveMeetupSpots(validSpots);
-          setIsFallbackMode(false);
+          setPlacesUnavailableReason(null);
         }
       } catch (err) {
         console.error("Error fetching places:", err);
-        const fallbackSpots = generateDynamicLocalMeetups(centerCoords);
-        setLiveMeetupSpots(fallbackSpots);
-        setIsFallbackMode(true);
+        setLiveMeetupSpots(noPlacesAvailable());
+        setPlacesUnavailableReason(
+          'Could not reach the places service. Try again in a moment.',
+        );
       } finally {
         if (active) {
           setLoadingPlaces(false);
@@ -742,8 +700,15 @@ const ExploreTab = React.memo(function ExploreTab({
       const accessB = getAccessibility(b.type);
 
       // 2. User Ratings Score (rating)
-      const ratingA = a.rating || 4.0;
-      const ratingB = b.rating || 4.0;
+      // Unknown ratings score zero, not a flattering default.
+      //
+      // This used to be `a.rating || 4.0`, so a venue Google knows nothing about
+      // was ranked as though it had a solid 4.0 — invented data was deciding the
+      // order of the list. Scoring unknown as 0 means a venue with a real, good
+      // rating outranks one we simply have no information about. That is the
+      // correct incentive: it rewards venues we can actually vouch for.
+      const ratingA = a.rating ?? 0;
+      const ratingB = b.rating ?? 0;
 
       // 3. Popularity Score (userRatingCount)
       const popA = Math.min(50, Math.log10((a.userRatingCount || 0) + 1) * 15);
@@ -1528,89 +1493,22 @@ const ExploreTab = React.memo(function ExploreTab({
               /* 3. MAGAZINE CONTENTS CONTAINER */
               <div className="space-y-10">
                 
-                {/* A. TRENDING NEARBY SECTION */}
-                {(activeCategory === 'All' || activeCategory === 'MeetUps') && (
-                  <section className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h2 className={`text-sm font-black uppercase tracking-widest ${appTheme === 'dark' ? 'text-neutral-400' : 'text-zinc-400'}`}>
-                        🔥 Trending Nearby
-                      </h2>
-                      <button
-                        onClick={() => {
-                          setShowNewPostModal(true);
-                          triggerBeep(450, 0.08);
-                        }}
-                        className="text-[11px] font-black text-[#0F8A5F] hover:underline"
-                      >
-                        + Post Vibe
-                      </button>
-                    </div>
+                {/* A. TRENDING NEARBY — REMOVED.
+                    Three invented gatherings ("Tech & Ideas Café", "Weekend Board
+                    Games Club", "Sunrise Running Collective") with invented
+                    distances (350m, 600m, 1.2km) and invented participant counts
+                    (12, 8, 15), presented as things happening near the user now.
 
-                    <div className="flex space-x-4 overflow-x-auto scrollbar-none pb-2" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-                      {[
-                        {
-                          id: 'trend-1',
-                          title: `${selectedPreset?.name || 'Local'} Tech & Ideas Café`,
-                          distance: '350m away',
-                          participants: 12,
-                          image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop',
-                          type: 'Meetup'
-                        },
-                        {
-                          id: 'trend-2',
-                          title: `Weekend Board Games Club`,
-                          distance: '600m away',
-                          participants: 8,
-                          image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=400&auto=format&fit=crop',
-                          type: 'Activity'
-                        },
-                        {
-                          id: 'trend-3',
-                          title: `Sunrise Running Collective`,
-                          distance: '1.2km away',
-                          participants: 15,
-                          image: 'https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=400&auto=format&fit=crop',
-                          type: 'Sports'
-                        }
-                      ].map((item) => (
-                        <motion.div
-                          key={item.id}
-                          whileHover={{ y: -4 }}
-                          className="w-72 shrink-0 rounded-[24px] overflow-hidden bg-neutral-900 border border-neutral-800 shadow-md relative group snap-start"
-                        >
-                          <div className="h-44 bg-zinc-800 relative">
-                            <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
-                            
-                            <span className="absolute top-3 left-3 text-[9px] bg-black/60 text-white font-black px-2 py-1 rounded-md uppercase tracking-wider">
-                              ⚡ {item.type}
-                            </span>
-                            <span className="absolute bottom-3 left-3 text-[10px] text-white font-black flex items-center">
-                              <MapPin className="w-3.5 h-3.5 text-[#0F8A5F] mr-0.5 animate-pulse" />
-                              {item.distance}
-                            </span>
-                          </div>
+                    Removed for the same reason as the fabricated venue list: on an
+                    app whose whole purpose is helping people meet strangers in
+                    person, telling someone a group is gathering 350m away when it
+                    is not sends a real person to a real place expecting people who
+                    were never going to be there.
 
-                          <div className="p-4 space-y-3 text-white">
-                            <h3 className="font-extrabold text-xs line-clamp-1 leading-tight">{item.title}</h3>
-                            <div className="flex justify-between items-center text-[10px] pt-1">
-                              <span className="text-zinc-400 font-medium">🙋‍♂️ {item.participants} neighbors active</span>
-                              <button
-                                onClick={() => {
-                                  showToast(`Explored: "${item.title}"`);
-                                  triggerBeep(520, 0.05);
-                                }}
-                                className="px-3 py-1.5 bg-[#0F8A5F] hover:bg-[#0c734f] text-white text-[10px] font-black rounded-lg transition active:scale-95"
-                              >
-                                Explore
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </section>
-                )}
+                    What replaces it: the real activity feed and the real posts
+                    people write. Thin engagement without it is an honest signal
+                    that we need users — not a reason to invent them. */}
+
 
                 {/* ADVANCED PROXIMITY FILTER CONTROLS */}
                 {activeCategory === 'Proximity filter search' && (
@@ -1935,7 +1833,36 @@ const ExploreTab = React.memo(function ExploreTab({
                   </section>
                 )}
 
-                {/* D. POPULAR PLACES SECTION */}
+                {/* D. POPULAR PLACES SECTION.
+                    When there are no real places we say why, in the same slot the
+                    list would have occupied. This replaces a fabricated fallback
+                    that invented venues — including invented safety guarantees —
+                    whenever Google Places failed or returned nothing. */}
+                {(activeCategory === 'All' || activeCategory === 'MeetUps') &&
+                  filteredPlaces.length === 0 &&
+                  placesUnavailableReason && (
+                    <section className="space-y-3">
+                      <h2 className={`text-sm font-black uppercase tracking-widest ${appTheme === 'dark' ? 'text-neutral-400' : 'text-zinc-400'}`}>
+                        📍 Popular Places &amp; Meetup Spots
+                      </h2>
+                      <div className={`rounded-[20px] border px-4 py-4 flex items-start gap-3 ${
+                        appTheme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-zinc-200'
+                      }`}>
+                        <MapPin className="w-4.5 h-4.5 mt-[2px] shrink-0 text-[#0F8A5F]" />
+                        <div className="space-y-1">
+                          <p className="text-[13px] font-bold">No places to show right now</p>
+                          <p className={`text-[12px] leading-relaxed ${appTheme === 'dark' ? 'text-neutral-400' : 'text-zinc-500'}`}>
+                            {placesUnavailableReason}
+                          </p>
+                          <p className={`text-[11px] leading-relaxed pt-0.5 ${appTheme === 'dark' ? 'text-neutral-500' : 'text-zinc-400'}`}>
+                            We only list real, publicly accessible venues. Nothing is shown
+                            rather than suggesting somewhere we cannot verify.
+                          </p>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
                 {(activeCategory === 'All' || activeCategory === 'MeetUps') && filteredPlaces.length > 0 && (
                   <section className="space-y-4">
                     <h2 className={`text-sm font-black uppercase tracking-widest ${appTheme === 'dark' ? 'text-neutral-400' : 'text-zinc-400'}`}>
@@ -1952,7 +1879,16 @@ const ExploreTab = React.memo(function ExploreTab({
                           }`}
                         >
                           <div className="h-36 relative bg-zinc-200">
-                            <img src={spot.img} alt={spot.name} className="w-full h-full object-cover" />
+                            {/* No photo from Google means no photo. It used to
+                                fall back to a stock image of a different venue of
+                                the same category — see the note in the builder. */}
+                            {spot.img ? (
+                              <img src={spot.img} alt={spot.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-zinc-100 dark:bg-neutral-800">
+                                <MapPin className="w-7 h-7 text-zinc-300 dark:text-neutral-600" />
+                              </div>
+                            )}
                             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent"></div>
                             
                             <span className="absolute top-3 left-3 text-[9px] bg-white text-zinc-800 font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow border border-zinc-100">
@@ -1970,10 +1906,19 @@ const ExploreTab = React.memo(function ExploreTab({
                                 <h4 className={`font-extrabold text-xs truncate leading-tight flex-1 ${appTheme === 'dark' ? 'text-white' : 'text-neutral-900'}`}>
                                   {spot.name}
                                 </h4>
-                                <div className="flex items-center space-x-0.5 bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-500 text-[9px] font-black shrink-0">
-                                  <span>⭐</span>
-                                  <span>{spot.rating.toFixed(1)}</span>
-                                </div>
+                                {/* Rendered only when the places API actually
+                                    returned a rating. This used to read
+                                    `spot.rating.toFixed(1)` against a number that
+                                    defaulted to 4.5, so every venue displayed a
+                                    score — and with strictNullChecks off, the
+                                    nullable version would have crashed here
+                                    instead of failing to compile. */}
+                                {typeof spot.rating === 'number' && (
+                                  <div className="flex items-center space-x-0.5 bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-500 text-[9px] font-black shrink-0">
+                                    <span>⭐</span>
+                                    <span>{spot.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
                               </div>
                               <p className="text-[10px] text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
                                 {spot.desc}
@@ -1981,7 +1926,17 @@ const ExploreTab = React.memo(function ExploreTab({
                             </div>
 
                             <div className="flex items-center justify-between pt-2.5 border-t border-zinc-100 dark:border-neutral-800/60 text-[10px]">
-                              <span className="font-extrabold text-[#0F8A5F]">🟢 {spot.openNow}</span>
+                              {/* Never assume open. This used to hardcode the
+                                  string "Open Now" and paint it green for every
+                                  venue, which is how you send someone to a locked
+                                  door at a library that closed at 5pm. */}
+                              {spot.openNow === 'Open Now' ? (
+                                <span className="font-extrabold text-[#0F8A5F]">🟢 Open now</span>
+                              ) : spot.openNow === 'Closed' ? (
+                                <span className="font-extrabold text-zinc-400">🔴 Closed</span>
+                              ) : (
+                                <span className="font-semibold text-zinc-400">Hours unknown</span>
+                              )}
                               <button
                                 onClick={() => {
                                   navigator.clipboard.writeText(`Let's meet at ${spot.name}, address: ${spot.address}`);

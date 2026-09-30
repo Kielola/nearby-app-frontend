@@ -395,11 +395,39 @@ export function useNearbyController() {
  * exactly this purpose: the server owns what it owns.
  */
 const persistProfileToBackend = async (patch: Record<string, unknown>) => {
-const payload: Record<string, unknown> = {};
-if (typeof patch.name === 'string' && patch.name.trim()) payload.displayName = patch.name;
-if (typeof patch.customProfilePhoto === 'string') payload.avatarUrl = patch.customProfilePhoto;
-if (typeof patch.customStatus === 'string') payload.customStatus = patch.customStatus;
-await usersApi.updateMe(payload);
+  const payload: Record<string, unknown> = {};
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SILENT DATA LOSS HAPPENS HERE. READ BEFORE ADDING A FIELD.
+  //
+  // The debounced effect that calls this function sends roughly thirty fields.
+  // The backend's PATCH /me accepts five of them. Anything not listed below is
+  // accepted by this function, ignored, and lost — with no error and no warning.
+  // The UI has already updated optimistically, so the change looks applied and
+  // is gone on the next reload. That is what makes Settings feel broken: it very
+  // nearly is.
+  //
+  // So each field gets an explicit decision:
+  //
+  //   MAPPED      — the backend stores it, so we send it.
+  //   NOT_MAPPED  — the backend has no column. Listed explicitly so the gap is
+  //                 visible in the source rather than discovered by a user.
+  //
+  // `tests/settings-persistence.test.ts` asserts that every field the effect
+  // sends appears in one of these two lists. Adding a new setting without a
+  // decision fails the suite.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  if (typeof patch.name === 'string' && patch.name.trim()) payload.displayName = patch.name;
+  if (typeof patch.customProfilePhoto === 'string') payload.avatarUrl = patch.customProfilePhoto;
+  if (typeof patch.customStatus === 'string') payload.customStatus = patch.customStatus;
+
+  // Wired up: the backend's UpdateMeSchema already accepts `bio`, and the effect
+  // already sends it — it was simply never copied into the payload, so every bio
+  // a user wrote was discarded while the text sat on screen as if saved.
+  if (typeof patch.bio === 'string') payload.bio = patch.bio;
+
+  await usersApi.updateMe(payload);
 };
 
   /**

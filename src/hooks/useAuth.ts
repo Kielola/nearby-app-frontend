@@ -21,6 +21,5 @@ export function useAuth() {
     login: authService.login,
     signup: authService.signup,
     logout: authService.logout,
-    loginWithGoogle: authService.loginWithGoogle
   };
 }

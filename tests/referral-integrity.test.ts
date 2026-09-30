@@ -66,6 +66,7 @@ const code = (src: string) =>
 
 const referralApi = read('src/features/referrals/api.ts');
 const captureHook = read('src/features/referrals/hooks/useReferralCapture.ts');
+const pendingCodeModule = read('src/features/referrals/pendingCode.ts');
 const programHook = read('src/features/referrals/hooks/useReferralProgram.ts');
 const hub = read('src/features/referrals/components/ReferralHub.tsx');
 const earningsPanel = read('src/features/referrals/components/EarningsPanel.tsx');
@@ -344,7 +345,14 @@ check(
 );
 check(
   'the invite capture stores only the code',
-  /localStorage\.setItem\(STORAGE_KEY, clean\)/.test(captureHook) &&
+  // The capture hook goes through the shared store rather than touching
+  // localStorage itself — the key is written in exactly one module now.
+  /writePendingReferralCode\(clean\)/.test(captureHook) &&
+    !/localStorage/.test(code(captureHook)) &&
+    // And that one module writes the code and nothing else. If someone ever
+    // adds a second setItem here, this fails.
+    /setItem\(STORAGE_KEY, clean\)/.test(pendingCodeModule) &&
+    (code(pendingCodeModule).match(/localStorage\.setItem\(/g) ?? []).length === 1 &&
     !/localStorage\.setItem\([^)]*[Bb]alance/.test(code(captureHook)),
   'client state is being treated as a source of truth again',
 );

@@ -57,12 +57,38 @@ export const TERMS_GOVERNING_LAW = 'Federal Republic of Nigeria';
 /** The section the user must acknowledge separately. */
 export const FINAL_SECTION_NUMBER = 34;
 
-/** Placeholders the user still needs to fill in. */
-export const TERMS_PLACEHOLDERS = [
-  '[INSERT OFFICIAL EMAIL]',
-  '[INSERT FULL REGISTERED LEGAL NAME]',
-  '[INSERT REGISTERED OFFICE]',
-] as const;
+/**
+ * Legal identity of the counterparty to this agreement.
+ *
+ * ⚠️ CHANGE THIS IN TWO PLACES IF THE NAME CHANGES. The body below is stored as
+ * verbatim prose (so the fidelity test can prove it was never silently edited),
+ * which means these constants and the footer text in `TERMS_BODY` cannot be the
+ * same string. If CAC settles on a different name, update:
+ *
+ *   1. `COMPANY_LEGAL_NAME` here
+ *   2. the `Company:` line in `TERMS_BODY` below
+ *   3. `tests/terms-source.txt` — or the fidelity test will fail, by design
+ */
+export const COMPANY_LEGAL_NAME = 'FashFOS LTD';
+
+/**
+ * The address users can actually reach.
+ *
+ * This is a monitored support mailbox, not a personal one — it is published in a
+ * legally binding agreement, so someone has to be reading it.
+ */
+export const SUPPORT_EMAIL = 'fashfos@gmail.com';
+
+/**
+ * Placeholders the user still needs to fill in.
+ *
+ * Empty, and should stay empty. The registered office was intentionally REMOVED
+ * rather than filled: it is not required in a consumer-facing agreement, and
+ * publishing a company's registered address before CAC has settled the entity
+ * name would be worse than omitting it. The contact mailbox above is the
+ * meaningful reachable route for a user with a complaint.
+ */
+export const TERMS_PLACEHOLDERS = [] as const;
 
 /**
  * The agreement. Verbatim.
@@ -565,11 +591,9 @@ If you do not agree to the updated Terms, you must stop using the Platform.
 
 Questions, complaints, safety reports and legal notices concerning the Platform may be submitted through the official contact channels made available by FashFOS.
 
-Legal/Support Contact: [INSERT OFFICIAL EMAIL]
+Legal/Support Contact: fashfos@gmail.com
 
-Company: FashFOS [INSERT FULL REGISTERED LEGAL NAME]
-
-Registered Address: [INSERT REGISTERED OFFICE]
+Company: FashFOS LTD
 
 Website: nearby.fashfos.com
 
