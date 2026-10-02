@@ -29,6 +29,12 @@ export interface ReferralProfile {
   name: string;
   avatar: string;
   bio: string;
+  /**
+   * The area this user is competing for in the monthly Area vs Area challenge.
+   * Null when the user has not set one — the challenge screen says so rather than
+   * guessing a location.
+   */
+  areaName: string | null;
   referralCode: string;
   referralLink: string;
   verifiedInvites: number;

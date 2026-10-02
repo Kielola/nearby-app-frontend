@@ -1,21 +1,38 @@
 /**
- * The five reward tiers.
+ * The reward tiers.
  *
- * Eligibility, claim state and the limited-edition count all come from the
- * server (`GET /milestones`). The client never decides whether a user qualifies
- * — it asks, and the claim endpoint re-checks every condition before paying.
+ *     ₦2,000 for every completed block of 10 verified referrals.
  *
- * The two auto-claimed tiers (20 and 50 invites) show as already claimed once
- * they pay, because the server claims them through the same table. That is the
- * fix for the original's double payment: those tiers were credited automatically
- * inside `recordReferral` *and* offered as manually claimable, so they could pay
- * twice. Here they pay once, whichever path reaches them first.
+ * So the list reads ₦2,000 at 10, ₦2,000 again at 20, ₦2,000 again at 30, and so
+ * on: each row is a *block*, not a running total. Ten of them at 50 referrals adds
+ * up to ₦10,000.
+ *
+ * Every row is labelled with the block it represents rather than the cumulative
+ * figure, because "₦2,000" next to "20 referrals" would otherwise read as a
+ * second, separate ₦2,000 on top of the first — which is what it is, but only
+ * because each block pays its own. The running total is shown separately at the
+ * top so there is no ambiguity about what is actually owed.
+ *
+ * Eligibility, claim state and the limited-edition count all come from the server
+ * (`GET /milestones`). The client never decides whether a user qualifies — it asks,
+ * and the claim endpoint re-checks every condition before paying.
+ *
+ * Every tier is `autoClaim`, so the money lands the moment the threshold is
+ * crossed and there is nothing for the user to tap. The claim button remains for
+ * tiers that might be made manual again, and because a pay control that can refuse
+ * is one the server can be the authority on.
  */
 import { useState } from 'react';
 import { Lock, Check } from 'lucide-react';
 import { claimMilestone } from '../api';
 import { formatNaira } from '../types';
 import { Milestone } from '../types';
+import {
+  REWARD_PER_BLOCK_NGN,
+  REFERRALS_PER_BLOCK,
+  rewardNairaFor,
+  referralsToNextBlock,
+} from '../rewardsContent';
 
 export default function MilestonesPanel({
   milestones,
@@ -48,8 +65,51 @@ export default function MilestonesPanel({
     }
   };
 
+  const earnedSoFar = rewardNairaFor(verifiedInvites);
+  const toNext = referralsToNextBlock(verifiedInvites);
+
   return (
     <div className="space-y-4">
+      {/* How the reward works, stated before the tiers.
+          The tiers alone are ambiguous: ten rows all reading ₦2,000 looks like a
+          mistake until you know each one is a separate block. */}
+      <div
+        className={`border rounded-[24px] p-5 shadow-sm ${
+          isDark ? 'bg-neutral-900/40 border-neutral-800' : 'bg-white border-stone-200/50'
+        }`}
+      >
+        <h3 className="text-sm font-black mb-2">How your reward works</h3>
+        <p className="text-[11.5px] leading-relaxed text-neutral-400">
+          You earn{' '}
+          <span className="font-bold text-emerald-500">
+            ₦{REWARD_PER_BLOCK_NGN.toLocaleString('en-NG')}
+          </span>{' '}
+          for every{' '}
+          <span className="font-bold text-neutral-200 dark:text-neutral-200">
+            {REFERRALS_PER_BLOCK} verified referrals
+          </span>
+          . It keeps paying — 20 referrals is two blocks, 50 is five — and it stacks on top of the
+          monthly Area vs Area challenge.
+        </p>
+
+        <div className="mt-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-bold">
+              Earned so far
+            </p>
+            <p className="text-2xl font-black text-emerald-500">
+              {formatNaira(earnedSoFar * 100)}
+            </p>
+          </div>
+          <p className="text-[10.5px] text-neutral-400 font-medium text-right pb-1">
+            {verifiedInvites} verified ·{' '}
+            {verifiedInvites % REFERRALS_PER_BLOCK === 0 && verifiedInvites > 0
+              ? 'block complete'
+              : `${toNext} to your next ₦${REWARD_PER_BLOCK_NGN.toLocaleString('en-NG')}`}
+          </p>
+        </div>
+      </div>
+
       {message && (
         <div
           className={`rounded-2xl px-4 py-3 text-xs font-bold ${

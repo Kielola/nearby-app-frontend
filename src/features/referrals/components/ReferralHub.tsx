@@ -1,26 +1,45 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ChevronLeft, Gift, Trophy, Users, MapPin, Sparkles, Wallet } from 'lucide-react';
+import { ChevronLeft, Gift, Trophy, Swords, Sparkles, Wallet } from 'lucide-react';
 import { useReferralProgram } from '../hooks/useReferralProgram';
 import { formatNaira } from '../types';
 import ReferralOverviewPanel from './ReferralOverviewPanel';
 import MilestonesPanel from './MilestonesPanel';
 import EarningsPanel from './EarningsPanel';
 import LeaderboardPanel from './LeaderboardPanel';
-import TeamsPanel from './TeamsPanel';
-import TreasurePanel from './TreasurePanel';
-import InfluencerPanel from './InfluencerPanel';
+import AreaChallengePanel from './AreaChallengePanel';
 
-type Tab = 'overview' | 'milestones' | 'earnings' | 'leaders' | 'teams' | 'treasure' | 'creators';
+/**
+ * The tabs, which are now exactly the rewards that exist.
+ *
+ * ## What was removed, and why it had to be
+ *
+ * There were seven tabs. Three of them — Squads, Treasure and Creators — advertised
+ * prizes that are not part of the reward scheme: squads "share a prize pool",
+ * treasure codes carried prizes, and creators were offered "₦100 for every verified
+ * referral". None of that existed on the server, and the creator rate actively
+ * contradicted the real one.
+ *
+ * Advertising a prize nobody can win is the same class of problem as showing a
+ * venue that does not exist: a user does the work, finds nothing, and stops
+ * trusting everything else the app says. Deleting them was better than leaving them
+ * disabled, because a greyed-out tab still implies the feature is coming.
+ *
+ * What remains is what actually pays out:
+ *   Invite   — your code, your link, your numbers
+ *   Rewards  — the ₦2,000 per 10 referral tiers
+ *   Area     — the monthly Area vs Area challenge
+ *   Earnings — your balance and withdrawals
+ *   Leaders  — the referral leaderboard
+ */
+type Tab = 'overview' | 'milestones' | 'area' | 'earnings' | 'leaders';
 
 const TABS: { id: Tab; label: string; icon: typeof Gift }[] = [
   { id: 'overview', label: 'Invite', icon: Gift },
   { id: 'milestones', label: 'Rewards', icon: Sparkles },
+  { id: 'area', label: 'Area', icon: Swords },
   { id: 'earnings', label: 'Earnings', icon: Wallet },
   { id: 'leaders', label: 'Leaders', icon: Trophy },
-  { id: 'teams', label: 'Squads', icon: Users },
-  { id: 'treasure', label: 'Treasure', icon: MapPin },
-  { id: 'creators', label: 'Creators', icon: Sparkles },
 ];
 
 /**
@@ -169,26 +188,14 @@ export default function ReferralHub({ onBack, theme }: { onBack: () => void; the
             onRefresh={program.refresh}
           />
         )}
+        {tab === 'area' && (
+          <AreaChallengePanel
+            isDark={isDark}
+            verifiedInvites={profile.verifiedInvites}
+            areaName={profile.areaName}
+          />
+        )}
         {tab === 'leaders' && <LeaderboardPanel boards={program.boards} isDark={isDark} />}
-        {tab === 'teams' && (
-          <TeamsPanel
-            teams={program.teams}
-            myTeam={program.myTeam}
-            isDark={isDark}
-            onRefresh={program.refresh}
-          />
-        )}
-        {tab === 'treasure' && (
-          <TreasurePanel codes={program.treasure} isDark={isDark} onRefresh={program.refresh} />
-        )}
-        {tab === 'creators' && (
-          <InfluencerPanel
-            influencers={program.influencers}
-            myApplication={profile.influencer}
-            isDark={isDark}
-            onRefresh={program.refresh}
-          />
-        )}
       </motion.div>
     </div>
   );
