@@ -33,6 +33,7 @@ import {
   rewardNairaFor,
   referralsToNextBlock,
 } from '../rewardsContent';
+import ClaimInstructions from './ClaimInstructions';
 
 export default function MilestonesPanel({
   milestones,
@@ -140,11 +141,18 @@ export default function MilestonesPanel({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="text-sm font-black block">
-                  {milestone.invitesRequired} verified invites
+                {/* The CUMULATIVE total by this point, not the credit for this
+                    single block.
+                    The server's `rewardTitle` is per-block ("₦2,000 cash reward")
+                    because that is what the ledger actually credits — which meant
+                    every one of the ten rows read ₦2,000, and the list looked like
+                    the rate was ₦2,000 total no matter how many referrals you
+                    brought. The total is what a person wants to see. */}
+                <span className="text-xl font-black block text-emerald-500">
+                  {formatNaira(rewardNairaFor(milestone.invitesRequired) * 100)}
                 </span>
-                <span className="text-[11px] text-amber-500 font-bold block mt-0.5">
-                  {milestone.rewardTitle}
+                <span className="text-[11px] text-neutral-400 font-bold block mt-0.5">
+                  at {milestone.invitesRequired} verified referrals
                 </span>
               </div>
               {milestone.claimed ? (
@@ -158,7 +166,10 @@ export default function MilestonesPanel({
               )}
             </div>
 
-            <p className="text-[10px] text-neutral-400 leading-relaxed">{milestone.rewardDescription}</p>
+            <p className="text-[10px] text-neutral-400 leading-relaxed">
+              This step adds {formatNaira(REWARD_PER_BLOCK_NGN * 100)} — one completed block of{' '}
+              {REFERRALS_PER_BLOCK}.
+            </p>
 
             {/* Progress bar, capped at 100% — over-achieving does not draw outside
                 the bar, and the number is clamped server-side too. */}
@@ -178,7 +189,7 @@ export default function MilestonesPanel({
                 )}
                 {milestone.valueKobo > 0 && (
                   <span className="text-[9px] font-bold px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-500">
-                    {formatNaira(milestone.valueKobo)}
+                    +{formatNaira(milestone.valueKobo)} this step
                   </span>
                 )}
               </div>
@@ -207,6 +218,11 @@ export default function MilestonesPanel({
           </div>
         );
       })}
+
+      {/* Claiming lives here as well as on the Area tab. It used to be on the Area
+          tab only, which meant someone who earned the referral reward had nothing
+          on this screen telling them there was anything to do about it. */}
+      <ClaimInstructions isDark={isDark} />
     </div>
   );
 }

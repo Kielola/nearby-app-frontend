@@ -74,28 +74,16 @@ export const CLAIM_STEPS = [
     detail: 'Share our newest post on any of your social media accounts.',
   },
   {
-    title: `Screenshot your referral count — from inside the Nearby app`,
+    title: 'Screenshot your referral count — from inside the Nearby app',
     detail:
-      'Not a number you typed, and not a screenshot of anything else. Open the Invite tab in Nearby and ' +
-      'capture the count shown there. We match that against our own records.',
+      'Open the Invite tab in Nearby and capture the count as the app shows it. We need the number ' +
+      'as your account displays it, not a figure written out by hand.',
   },
   {
     title: `${AREA_CHALLENGE.cadence === 'monthly' ? 'Send' : 'Send'} both screenshots to our DM`,
     detail: 'The repost and your referral count, on any of our social media accounts below.',
   },
 ] as const;
-
-/**
- * Why the screenshot has to come from the app.
- *
- * Worth stating plainly in the UI rather than only in a policy: it tells an honest
- * user exactly what to send, and it tells anyone else that a doctored image will
- * not survive the check.
- */
-export const CLAIM_VERIFICATION_NOTE =
-  'Rewards are verified by hand for now. We check every claim against our own records, so the referral ' +
-  'count in your screenshot must match what our database shows for your account. Edited numbers are ' +
-  'found immediately and forfeit the reward.';
 
 // ── Where to send a claim ───────────────────────────────────────────────────
 

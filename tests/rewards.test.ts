@@ -25,6 +25,11 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const backendRoot = join(root, '..', 'nearby-backend');
 
+/** Read a file relative to the frontend root. */
+function read(relativePath: string): string {
+  return readFileSync(join(root, relativePath), 'utf8');
+}
+
 function readBackend(relativePath: string): string {
   return readFileSync(join(backendRoot, relativePath), 'utf8');
 }
@@ -36,7 +41,6 @@ const {
   referralsToNextBlock,
   AREA_CHALLENGE,
   CLAIM_STEPS,
-  CLAIM_VERIFICATION_NOTE,
   SOCIAL_ACCOUNTS,
   configuredSocialAccounts,
 } = await import('../src/features/referrals/rewardsContent.ts');
@@ -210,15 +214,25 @@ function check(name: string, pass: boolean, detail = '') {
     'the whole point is that the count can be matched against the database',
   );
   check('the claim is sent by DM', joined.includes('dm'));
+
+  // Owner's call: no telling users that claims are checked by hand. What the note
+  // said is gone; what remains is only the instruction for what to screenshot,
+  // which an honest user needs in order to send the right thing.
+  const content = await import('../src/features/referrals/rewardsContent.ts');
   check(
-    'it tells the user the numbers are checked',
-    CLAIM_VERIFICATION_NOTE.toLowerCase().includes('records') &&
-      CLAIM_VERIFICATION_NOTE.toLowerCase().includes('match'),
-    'an honest user needs to know what is expected of them',
+    'the manual-verification note is gone',
+    !('CLAIM_VERIFICATION_NOTE' in content),
+    'users should not be told the process is manual',
   );
   check(
-    'and that editing is detected',
-    CLAIM_VERIFICATION_NOTE.toLowerCase().includes('edited'),
+    'no copy claims the numbers are checked against a database',
+    !/against our own records|verified by hand|forfeit/i.test(joined),
+    'that wording was removed at the owner\'s request',
+  );
+  check(
+    'but the instruction to screenshot from inside the app remains',
+    joined.includes('invite tab in nearby'),
+    'without it users send the wrong thing and the claim fails',
   );
 }
 
@@ -302,6 +316,83 @@ function check(name: string, pass: boolean, detail = '') {
   check(
     'no url was made up to look real',
     SOCIAL_ACCOUNTS.every((a) => a.url === '' || /^https?:\/\//.test(a.url)),
+  );
+}
+
+// ── 6b. The rows show the total, and the claim steps appear on both tabs ────
+//
+// Both were wrong on screen, and neither would have failed anything.
+//
+// The tiers rendered `rewardTitle` from the server, which is the per-block credit
+// — ₦2,000 — because that is what the ledger pays each time. So all ten rows read
+// ₦2,000 and the list looked like ₦2,000 was the whole reward however many
+// referrals you brought. The cumulative total is the number a person is actually
+// looking for.
+//
+// And the claim instructions only existed on the Area tab, so anyone who earned
+// the referral reward had nothing on the Rewards screen telling them there was
+// anything to do about it.
+{
+  const panel = read('src/features/referrals/components/MilestonesPanel.tsx');
+  const area = read('src/features/referrals/components/AreaChallengePanel.tsx');
+
+  check(
+    'the reward rows show a cumulative total, not the per-block credit',
+    /rewardNairaFor\(milestone\.invitesRequired\)/.test(panel),
+    'every row would read ₦2,000 again',
+  );
+  check(
+    'the row no longer prints the raw server title as its headline',
+    !/\{milestone\.rewardTitle\}/.test(panel),
+    'the server title is per-block and reads as a total on screen',
+  );
+  check(
+    'the row is labelled with the threshold it belongs to',
+    /at \{milestone\.invitesRequired\} verified referrals/.test(panel),
+  );
+  check(
+    'the row still says what that one step adds',
+    /This step adds/.test(panel) && /REWARD_PER_BLOCK_NGN/.test(panel),
+    'without it, a cumulative figure looks like a second payment',
+  );
+  check(
+    'the step credit badge is labelled as a step',
+    /this step/.test(panel),
+    '"+₦2,000" alone reads like another ₦2,000 on top of the total',
+  );
+
+  check(
+    'the Rewards tab shows how to claim',
+    /<ClaimInstructions/.test(panel),
+    'a reward with no way to claim it is not a reward',
+  );
+  check(
+    'the Area tab shows how to claim',
+    /<ClaimInstructions/.test(area),
+  );
+  check(
+    'both tabs use the same component',
+    /from '\.\/ClaimInstructions'/.test(panel) && /from '\.\/ClaimInstructions'/.test(area),
+    'two copies would drift apart, which is how they disagreed in the first place',
+  );
+
+  const shared = read('src/features/referrals/components/ClaimInstructions.tsx');
+  check('the shared component renders the steps', /CLAIM_STEPS\.map/.test(shared));
+  check('and the destinations', /configuredSocialAccounts\(\)/.test(shared));
+  check(
+    'the verification note is not rendered anywhere',
+    !/CLAIM_VERIFICATION_NOTE/.test(shared) &&
+      !/CLAIM_VERIFICATION_NOTE/.test(area) &&
+      !/CLAIM_VERIFICATION_NOTE/.test(panel),
+  );
+
+  // 10 -> ₦2,000, 20 -> ₦4,000: the exact chain the owner asked for.
+  check(
+    'the visible ladder is 2,000 / 4,000 / 6,000 / 10,000',
+    rewardNairaFor(10) === 2_000 &&
+      rewardNairaFor(20) === 4_000 &&
+      rewardNairaFor(30) === 6_000 &&
+      rewardNairaFor(50) === 10_000,
   );
 }
 
